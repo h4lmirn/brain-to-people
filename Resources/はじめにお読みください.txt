@@ -1,0 +1,22 @@
+Brain-to-People（B2P）のインストール
+
+■ 動く環境
+・macOS 14 Sonoma 以降（Intel の Mac、Apple シリコンの Mac のどちらでも動きます）
+・Apple Intelligence（端末内で動く接続方式）は、macOS 26 以降で Apple Intelligence がオンの Mac だけで使えます
+
+■ インストール
+1. Brain-to-People を、右の Applications フォルダにドラッグします
+2. Applications フォルダから Brain-to-People を開きます
+
+■ 初めて開くとき
+このアプリは App Store や Apple の確認（公証）を通していないため、初回は「開けません」と表示されます。
+1. 表示されたメッセージで「完了」を押して閉じます
+2. システム設定 →「プライバシーとセキュリティ」を開きます
+3. 下の方にある「Brain-to-People は…」の横の「このまま開く」を押し、パスワードを入れます
+4. もう一度アプリを開き、「開く」を押します
+2回目からは普通に開けます。
+
+■ 設定
+・API キーは Mac ごとに入れ直してください（設定 ⌘, → プロファイル → API キー）
+・プロファイルは、元の Mac の設定画面で「JSON に書き出す」を選び、新しい Mac で「JSON から読み込む」を選ぶと移せます
+  （API キーは書き出されません）

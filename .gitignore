@@ -1,0 +1,8 @@
+# ビルドの中間ファイルと成果物
+.build/
+build/
+dist/
+*.xcodeproj/
+.swiftpm/
+
+.DS_Store

@@ -1,0 +1,54 @@
+# Xcode を入れたあとに使う: brew install xcodegen && xcodegen generate
+# Xcode 26 以降の SDK でビルドすると、Apple 端末内モデル（Foundation Models）も有効になる。
+name: B2P
+options:
+  bundleIdPrefix: com.changsama
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+targets:
+  B2PCore:
+    type: framework
+    platform: macOS
+    sources: [Sources/B2PCore]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.changsama.B2PCore
+        GENERATE_INFOPLIST_FILE: YES
+  B2P:
+    type: application
+    platform: macOS
+    sources: [Sources/B2P]
+    dependencies:
+      - target: B2PCore
+    settings:
+      base:
+        PRODUCT_NAME: Brain-to-People
+        PRODUCT_MODULE_NAME: B2P
+        PRODUCT_BUNDLE_IDENTIFIER: com.changsama.B2P
+        INFOPLIST_FILE: Resources/Info.plist
+        ENABLE_APP_SANDBOX: NO
+  B2PCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/B2PCoreTests]
+    dependencies:
+      - target: B2PCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  B2P:
+    build:
+      targets:
+        B2P: all
+    test:
+      targets: [B2PCoreTests]
