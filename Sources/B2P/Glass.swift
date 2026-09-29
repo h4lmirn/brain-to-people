@@ -6,24 +6,31 @@ import SwiftUI
 // それ以前はマテリアル、縁のハイライト、影で近い見た目を作る。
 
 extension View {
-    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil) -> some View {
-        modifier(GlassSurface(shape: shape, tint: tint))
+    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, backgroundOpacity: Double = 1) -> some View {
+        modifier(GlassSurface(shape: shape, tint: tint, backgroundOpacity: backgroundOpacity))
     }
 
-    func glassCard(cornerRadius: CGFloat = 20) -> some View {
-        glass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    func glassCard(cornerRadius: CGFloat = 20, backgroundOpacity: Double = 1) -> some View {
+        glass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), backgroundOpacity: backgroundOpacity)
     }
 }
 
 struct GlassSurface<S: InsettableShape>: ViewModifier {
     let shape: S
     var tint: Color?
+    var backgroundOpacity: Double = 1
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            content.glassEffect(tint.map { Glass.regular.tint($0.opacity(0.35)) } ?? .regular, in: shape)
+            content.background {
+                // 背景だけを透かし、文字や操作部品の濃さは変えない。
+                Color.clear
+                    .glassEffect(tint.map { Glass.regular.tint($0.opacity(0.35)) } ?? .regular, in: shape)
+                    .opacity(backgroundOpacity)
+                    .allowsHitTesting(false)
+            }
         } else {
             fallback(content)
         }
@@ -48,6 +55,7 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
                         shape.fill(tint.opacity(dark ? 0.22 : 0.16))
                     }
                 }
+                .opacity(backgroundOpacity)
             }
             .overlay {
                 // 縁のハイライト（左上が強く光る）

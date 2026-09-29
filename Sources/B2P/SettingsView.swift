@@ -24,6 +24,22 @@ private struct GeneralSettingsView: View {
                 Toggle("修正版が出たら、修正点を自動で開く", isOn: $model.autoExpandChanges)
                 Toggle("常に最前面に表示", isOn: $model.alwaysOnTop)
             }
+            Section("テキストボックス") {
+                HStack {
+                    Slider(value: $model.textBackgroundTransparency, in: 0...1, step: 0.05) {
+                        Text("背景の透明度")
+                    }
+                    .accessibilityLabel("テキストボックスの背景の透明度")
+                    .accessibilityValue(model.textBackgroundTransparency.formatted(.percent.precision(.fractionLength(0))))
+                    Text(model.textBackgroundTransparency.formatted(.percent.precision(.fractionLength(0))))
+                        .monospacedDigit()
+                        .frame(width: 42, alignment: .trailing)
+                }
+                Text("入力欄と修正版欄に共通です。値を上げると、背後の画像が見えやすくなります。文字の濃さは変わりません。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("初期値は 0% です。100% で欄の背景が透明になります。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("ショートカット") {
                 LabeledContent("実行", value: "⌘↩")
                 LabeledContent("中止", value: "Esc")

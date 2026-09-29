@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
         static let autoExpandChanges = "autoExpandChanges"
         static let addedAppleProfile = "addedAppleProfile"
         static let backgroundOpacity = "backgroundOpacity"
+        static let textBackgroundTransparency = "textBackgroundTransparency"
     }
 
     @Published var profiles: [ProfileConfig] {
@@ -42,6 +43,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var backgroundImage: NSImage?
     @Published var backgroundOpacity: Double {
         didSet { defaults.set(backgroundOpacity, forKey: Keys.backgroundOpacity) }
+    }
+    /// 入力欄と修正版欄で共通。0 は従来の背景、1 は背景を完全に透かす。
+    @Published var textBackgroundTransparency: Double {
+        didSet { defaults.set(textBackgroundTransparency, forKey: Keys.textBackgroundTransparency) }
     }
     @Published var changes: [RevisionChange] = []
     @Published var minor = ""
@@ -75,6 +80,8 @@ final class AppModel: ObservableObject {
         autoExpandChanges = defaults.object(forKey: Keys.autoExpandChanges) as? Bool ?? true
         backgroundImage = backgroundStore.load()
         backgroundOpacity = min(0.8, max(0.1, defaults.object(forKey: Keys.backgroundOpacity) as? Double ?? 0.35))
+        let transparency = defaults.object(forKey: Keys.textBackgroundTransparency) as? Double ?? 0
+        textBackgroundTransparency = transparency.isFinite ? min(1, max(0, transparency)) : 0
         if !FileManager.default.fileExists(atPath: store.fileURL.path) { saveProfiles() }
         addAppleProfileOnce()
         installControlCMonitor()

@@ -157,7 +157,7 @@ struct MainView: View {
     }
 
     private var inputPane: some View {
-        GlassPane(title: "入力", systemImage: "brain.head.profile") {
+        GlassPane(title: "入力", systemImage: "brain.head.profile", backgroundOpacity: 1 - model.textBackgroundTransparency) {
             EmptyView()
         } content: {
             TextArea(text: $model.input, onEscape: escapeHandler)
@@ -170,7 +170,7 @@ struct MainView: View {
     }
 
     private var revisedPane: some View {
-        GlassPane(title: "修正版", systemImage: "person.2") {
+        GlassPane(title: "修正版", systemImage: "person.2", backgroundOpacity: 1 - model.textBackgroundTransparency) {
             Button {
                 model.copyRevised()
             } label: {
@@ -239,6 +239,7 @@ struct MainView: View {
 private struct GlassPane<Accessory: View, Content: View>: View {
     let title: String
     let systemImage: String
+    let backgroundOpacity: Double
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
 
@@ -260,7 +261,7 @@ private struct GlassPane<Accessory: View, Content: View>: View {
                 .padding(.horizontal, 4)
                 .padding(.bottom, 4)
         }
-        .glassCard(cornerRadius: 22)
+        .glassCard(cornerRadius: 22, backgroundOpacity: backgroundOpacity)
     }
 }
 
