@@ -97,10 +97,12 @@ struct ProviderParsingTests {
 
     @Test func temperatureを送るかどうか() {
         #expect(!AnthropicProvider.acceptsTemperature(model: "claude-sonnet-5"))
+        #expect(!AnthropicProvider.acceptsTemperature(model: "claude-sonnet-5-5"))
         #expect(!AnthropicProvider.acceptsTemperature(model: "claude-opus-5-5"))
         #expect(AnthropicProvider.acceptsTemperature(model: "claude-haiku-4-5-20251001"))
-        let profile = ProfileConfig(name: "t", model: "claude-sonnet-5", instructions: "")
+        let profile = ProfileConfig(name: "t", instructions: "")
         let body = AnthropicProvider.requestBody(system: "s", user: "u", config: profile, includeTemperature: false)
+        #expect(body["model"] as? String == "claude-sonnet-5-5")
         #expect(body["temperature"] == nil)
         #expect(body["max_tokens"] as? Int == 4096)
     }
@@ -148,6 +150,7 @@ struct ProfileTests {
     @Test func 既定のプロファイル() {
         let profiles = DefaultProfiles.make()
         #expect(profiles.map(\.name) == ["整える", "Slack", "メール", "記事"])
+        #expect(profiles.allSatisfy { $0.model == "claude-sonnet-5-5" })
         #expect(profiles.allSatisfy { $0.provider == .anthropic && $0.instructions.hasPrefix(DefaultProfiles.common) })
     }
 
@@ -170,6 +173,28 @@ struct ProfileTests {
         try Data("not json".utf8).write(to: store.fileURL)
         #expect(store.load().count == 4)
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("profiles.broken.json").path))
+    }
+
+    @Test func 保存済みのSonnet5を移行してほかの設定は保つ() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = ProfileStore(directory: dir)
+        let old = ProfileConfig(name: "編集済み", model: "claude-sonnet-5", temperature: 0.7,
+                                instructions: "この指示を保つ", fastMode: true)
+        let others = [
+            ProfileConfig(name: "Haiku", model: "claude-haiku-4-5-20251001", instructions: ""),
+            ProfileConfig(name: "互換", provider: .openAICompatible, model: "claude-sonnet-5", instructions: ""),
+            ProfileConfig(name: "固定", model: "claude-sonnet-5-custom", instructions: ""),
+            ProfileConfig(name: "5.5", model: "claude-sonnet-5-5", instructions: ""),
+        ]
+        try store.save([old] + others)
+        var expected = old
+        expected.model = "claude-sonnet-5-5"
+        let migrated = store.load()
+        #expect(migrated == [expected] + others)
+        #expect(try ProfileStore.decode(ProfileStore.encode([old] + others)) == migrated)
+        try store.save(migrated)
+        #expect(store.load() == migrated)
     }
 }
 
@@ -198,15 +223,16 @@ struct AppleOnDeviceTests {
 @Suite("速さ優先")
 struct FastModeTests {
     @Test func 対応モデルではeffortをlowで送る() {
-        let profile = ProfileConfig(name: "t", model: "claude-sonnet-5", instructions: "", fastMode: true)
+        let profile = ProfileConfig(name: "t", instructions: "", fastMode: true)
         let body = AnthropicProvider.requestBody(system: "s", user: "u", config: profile, includeTemperature: false, includeEffort: true)
         #expect((body["output_config"] as? [String: String]) == ["effort": "low"])
         #expect(AnthropicProvider.supportsEffort(model: "claude-sonnet-5"))
+        #expect(AnthropicProvider.supportsEffort(model: "claude-sonnet-5-5"))
         #expect(!AnthropicProvider.supportsEffort(model: "claude-haiku-4-5-20251001"))
     }
 
     @Test func オフならeffortを送らない() {
-        let profile = ProfileConfig(name: "t", model: "claude-sonnet-5", instructions: "")
+        let profile = ProfileConfig(name: "t", instructions: "")
         let body = AnthropicProvider.requestBody(system: "s", user: "u", config: profile, includeTemperature: false)
         #expect(body["output_config"] == nil)
     }
@@ -216,5 +242,6 @@ struct FastModeTests {
         let profiles = try ProfileStore.decode(old)
         #expect(profiles.count == 1)
         #expect(profiles[0].fastMode == false)
+        #expect(profiles[0].model == "claude-sonnet-5-5")
     }
 }
