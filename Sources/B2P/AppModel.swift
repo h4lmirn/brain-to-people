@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
         static let alwaysOnTop = "alwaysOnTop"
         static let autoExpandChanges = "autoExpandChanges"
         static let addedAppleProfile = "addedAppleProfile"
+        static let backgroundOpacity = "backgroundOpacity"
     }
 
     @Published var profiles: [ProfileConfig] {
@@ -38,6 +39,10 @@ final class AppModel: ObservableObject {
     }
 
     @Published var revised = ""
+    @Published private(set) var backgroundImage: NSImage?
+    @Published var backgroundOpacity: Double {
+        didSet { defaults.set(backgroundOpacity, forKey: Keys.backgroundOpacity) }
+    }
     @Published var changes: [RevisionChange] = []
     @Published var minor = ""
     @Published var concerns: [String] = []
@@ -54,6 +59,7 @@ final class AppModel: ObservableObject {
     private let defaults = UserDefaults.standard
     private let store = ProfileStore()
     private let keychain = KeychainStore()
+    private let backgroundStore = BackgroundImageStore()
     private var task: Task<Void, Never>?
     private var runID: UUID?
     private var copyFeedbackID: UUID?
@@ -67,6 +73,8 @@ final class AppModel: ObservableObject {
         selectedProfileID = loaded.contains { $0.id == saved } ? saved : loaded.first?.id
         alwaysOnTop = defaults.bool(forKey: Keys.alwaysOnTop)
         autoExpandChanges = defaults.object(forKey: Keys.autoExpandChanges) as? Bool ?? true
+        backgroundImage = backgroundStore.load()
+        backgroundOpacity = min(0.8, max(0.1, defaults.object(forKey: Keys.backgroundOpacity) as? Double ?? 0.35))
         if !FileManager.default.fileExists(atPath: store.fileURL.path) { saveProfiles() }
         addAppleProfileOnce()
         installControlCMonitor()
@@ -104,6 +112,15 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: 実行
+
+    func setBackground(from url: URL) throws {
+        backgroundImage = try backgroundStore.save(from: url)
+    }
+
+    func resetBackground() throws {
+        try backgroundStore.remove()
+        backgroundImage = nil
+    }
 
     func run() {
         guard !isRunning, let profile = selectedProfile else { return }

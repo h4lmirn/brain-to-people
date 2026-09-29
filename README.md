@@ -73,6 +73,18 @@ AI の案を土台にして、最後はあなたの手で仕上げます。
 2. プロファイル のタブで、使うプロファイルを選びます
 3. 「API キー」の欄に鍵を貼りつけます
 
+## 背景を変える
+
+`⌘,` →「一般」→「背景」で「画像を選ぶ…」を押します。
+PNG、JPEG、HEIC、TIFF の画像を選べます。
+画像は上から表示し、下側ほど淡く背景色になじませます。
+「画像の濃さ」で見え方を調整できます。
+「元の背景に戻す」を押すと、はじめの背景に戻ります。
+
+画像は縮小して、この Mac のアプリ用フォルダに保存します。
+元の画像を移動しても、再起動後も表示できます。
+背景画像を AI に送ることはありません。
+
 ## キーボードでできること
 
 | キー | 動き |
@@ -213,6 +225,17 @@ Apple Intelligence を実際に呼ぶテストは、ふだんは動きません�
 ```bash
 B2P_ONDEVICE=1 swift test --filter AppleOnDeviceTests
 ```
+
+SwiftPM が環境の不整合で起動しないときは、対応する SDK を指定して直接ビルドできます。
+たとえば Swift 6.1.2 と macOS 15.5 SDK がある環境では、次を使います。
+
+```bash
+B2P_DIRECT_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk bash scripts/build-app.sh
+```
+
+アプリは `build/Brain-to-People.app` にできます。
+この方法では、ビルドした Mac の種類向けだけに作ります。
+macOS 15.5 SDK で作った版では、Apple Intelligence は使えません。
 
 中のしくみは、次の2つに分かれています。
 

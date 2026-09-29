@@ -7,7 +7,7 @@ struct MainView: View {
 
     var body: some View {
         ZStack {
-            Backdrop()
+            Backdrop(image: model.backgroundImage, opacity: model.backgroundOpacity)
             VStack(spacing: 14) {
                 if let message = model.errorMessage {
                     errorBanner(message)

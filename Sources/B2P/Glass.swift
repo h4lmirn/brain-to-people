@@ -105,22 +105,45 @@ private struct OptionalGlass: ViewModifier {
 
 /// ウィンドウの後ろをぼかし、その上に淡い色のにじみを置く。ガラスが透けて見えるための下地。
 struct Backdrop: View {
+    var image: NSImage? = nil
+    var opacity: Double = 0.35
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
-            VisualEffectBackground()
-            GeometryReader { geometry in
-                let w = geometry.size.width, h = geometry.size.height
-                let strength = scheme == .dark ? 0.30 : 0.22
-                ZStack {
-                    blob(.blue, strength, size: w * 0.65).offset(x: -w * 0.30, y: -h * 0.30)
-                    blob(.purple, strength * 0.8, size: w * 0.55).offset(x: w * 0.35, y: -h * 0.10)
-                    blob(.teal, strength * 0.7, size: w * 0.60).offset(x: w * 0.05, y: h * 0.40)
+            if let image {
+                Color(nsColor: .windowBackgroundColor)
+                GeometryReader { geometry in
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                        .clipped()
+                        .opacity(opacity)
+                        .mask {
+                            LinearGradient(stops: [
+                                .init(color: .white, location: 0),
+                                .init(color: .white.opacity(0.9), location: 0.3),
+                                .init(color: .white.opacity(0.35), location: 0.65),
+                                .init(color: .clear, location: 1),
+                            ], startPoint: .top, endPoint: .bottom)
+                        }
                 }
-                .frame(width: w, height: h)
+            } else {
+                VisualEffectBackground()
+                GeometryReader { geometry in
+                    let w = geometry.size.width, h = geometry.size.height
+                    let strength = scheme == .dark ? 0.30 : 0.22
+                    ZStack {
+                        blob(.blue, strength, size: w * 0.65).offset(x: -w * 0.30, y: -h * 0.30)
+                        blob(.purple, strength * 0.8, size: w * 0.55).offset(x: w * 0.35, y: -h * 0.10)
+                        blob(.teal, strength * 0.7, size: w * 0.60).offset(x: w * 0.05, y: h * 0.40)
+                    }
+                    .frame(width: w, height: h)
+                }
             }
         }
+        .allowsHitTesting(false)
         .ignoresSafeArea()
     }
 
