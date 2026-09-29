@@ -4,6 +4,7 @@ import SwiftUI
 /// 行間を広めにとった編集欄。TextEditor では選択範囲の強調ができないので NSTextView を包む。
 struct TextArea: NSViewRepresentable {
     @Binding var text: String
+    var placeholder = ""
     var highlight: HighlightRequest?
     /// Esc で呼ぶ。true を返したら既定の動作（入力補完）をしない。
     var onEscape: (() -> Bool)?
@@ -41,6 +42,7 @@ struct TextArea: NSViewRepresentable {
         textView.defaultParagraphStyle = Self.attributes[.paragraphStyle] as? NSParagraphStyle
         textView.typingAttributes = Self.attributes
         textView.delegate = context.coordinator
+        textView.placeholder = placeholder
         Self.setText(text, in: textView)
 
         scrollView.documentView = textView
@@ -51,6 +53,7 @@ struct TextArea: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? EscapableTextView else { return }
         textView.onEscape = onEscape
+        textView.placeholder = placeholder
         if textView.string != text, !textView.hasMarkedText() {
             Self.setText(text, in: textView)
         }
@@ -64,6 +67,7 @@ struct TextArea: NSViewRepresentable {
         textView.string = text
         textView.textStorage?.setAttributes(attributes, range: NSRange(location: 0, length: (text as NSString).length))
         clearHighlight(in: textView)
+        textView.needsDisplay = true
     }
 
     /// 修正版の中から該当部分を探して強調する。見つからなければ何もしない。
@@ -112,6 +116,46 @@ struct TextArea: NSViewRepresentable {
 
 final class EscapableTextView: NSTextView {
     var onEscape: (() -> Bool)?
+    var placeholder = "" {
+        didSet {
+            setAccessibilityPlaceholderValue(placeholder)
+            needsDisplay = true
+        }
+    }
+
+    // SwiftUI の Binding は未確定文字をまだ受け取っていないことがある。
+    // 案内文は NSTextView 自身の内容と変換状態から表示を決める。
+    var showsPlaceholder: Bool {
+        !placeholder.isEmpty && string.isEmpty && !hasMarkedText()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard showsPlaceholder else { return }
+        let origin = textContainerOrigin
+        let padding = textContainer?.lineFragmentPadding ?? 0
+        let rect = NSRect(x: origin.x + padding, y: origin.y,
+                          width: max(0, bounds.width - 2 * (origin.x + padding)),
+                          height: max(0, bounds.height - origin.y))
+        var attributes = TextArea.attributes
+        attributes[.foregroundColor] = NSColor.tertiaryLabelColor
+        (placeholder as NSString).draw(in: rect, withAttributes: attributes)
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        needsDisplay = true
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        needsDisplay = true
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
+    }
 
     override func cancelOperation(_ sender: Any?) {
         if onEscape?() == true { return }
