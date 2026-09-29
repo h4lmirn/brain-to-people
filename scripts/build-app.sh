@@ -29,8 +29,22 @@ else
     echo "note: Xcode が使えないため、この Mac の種類向けだけにビルドします"
 fi
 
-swift build -c release --product B2P ${ARCHS[@]+"${ARCHS[@]}"}
-BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/B2P"
+# SwiftPM が起動できない環境では、対応する SDK を明示して直接コンパイルする。
+if [[ -n ${B2P_DIRECT_SDK:-} ]]; then
+    DIRECT_OUT="$PWD/build/direct"
+    mkdir -p "$DIRECT_OUT/module-cache"
+    FLAGS=(-sdk "$B2P_DIRECT_SDK" -target "$(uname -m)-apple-macosx14.0"
+           -module-cache-path "$DIRECT_OUT/module-cache" -O)
+    swiftc "${FLAGS[@]}" -emit-library -static -emit-module -module-name B2PCore \
+        Sources/B2PCore/*.swift -o "$DIRECT_OUT/libB2PCore.a" \
+        -emit-module-path "$DIRECT_OUT/B2PCore.swiftmodule"
+    swiftc "${FLAGS[@]}" -parse-as-library -module-name B2P \
+        -I "$DIRECT_OUT" -L "$DIRECT_OUT" -lB2PCore Sources/B2P/*.swift -o "$DIRECT_OUT/B2P"
+    BIN="$DIRECT_OUT/B2P"
+else
+    swift build -c release --product B2P ${ARCHS[@]+"${ARCHS[@]}"}
+    BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/B2P"
+fi
 
 APP="build/Brain-to-People.app"
 rm -rf "$APP"

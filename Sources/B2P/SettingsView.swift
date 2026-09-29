@@ -16,12 +16,29 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @EnvironmentObject private var model: AppModel
+    @ViewState private var backgroundError: String?
 
     var body: some View {
         Form {
             Section("表示") {
                 Toggle("修正版が出たら、修正点を自動で開く", isOn: $model.autoExpandChanges)
                 Toggle("常に最前面に表示", isOn: $model.alwaysOnTop)
+            }
+            Section("テキストボックス") {
+                HStack {
+                    Slider(value: $model.textBackgroundTransparency, in: 0...1, step: 0.05) {
+                        Text("背景の透明度")
+                    }
+                    .accessibilityLabel("テキストボックスの背景の透明度")
+                    .accessibilityValue(model.textBackgroundTransparency.formatted(.percent.precision(.fractionLength(0))))
+                    Text(model.textBackgroundTransparency.formatted(.percent.precision(.fractionLength(0))))
+                        .monospacedDigit()
+                        .frame(width: 42, alignment: .trailing)
+                }
+                Text("入力欄と修正版欄に共通です。値を上げると、背後の画像が見えやすくなります。文字の濃さは変わりません。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("初期値は 0% です。100% で欄の背景が透明になります。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("ショートカット") {
                 LabeledContent("実行", value: "⌘↩")
@@ -30,9 +47,45 @@ private struct GeneralSettingsView: View {
                 LabeledContent("プロファイルの切り替え", value: "⌘1〜⌘9")
                 LabeledContent("常に最前面の切り替え", value: "⌥⌘T")
             }
+            Section("背景") {
+                Backdrop(image: model.backgroundImage, opacity: model.backgroundOpacity)
+                    .frame(height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel("背景のプレビュー")
+                HStack {
+                    Button("画像を選ぶ…", action: chooseBackground)
+                    if model.backgroundImage != nil {
+                        Button("元の背景に戻す") {
+                            do { try model.resetBackground() }
+                            catch { backgroundError = "背景を戻せませんでした。もう一度お試しください。" }
+                        }
+                    }
+                }
+                if model.backgroundImage != nil {
+                    Slider(value: $model.backgroundOpacity, in: 0.1...0.8, step: 0.05) {
+                        Text("画像の濃さ")
+                    }
+                }
+                Text("下側ほど画像が淡くなります。画像はこの Mac に保存し、AI には送りません。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 380)
+        .frame(width: 480, height: 640)
+        .alert("背景を変更できません", isPresented: Binding(
+            get: { backgroundError != nil }, set: { if !$0 { backgroundError = nil } }
+        )) { Button("OK") {} } message: { Text(backgroundError ?? "") }
+    }
+
+    private func chooseBackground() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "背景に使う"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try model.setBackground(from: url) }
+        catch { backgroundError = "画像を保存できませんでした。別の PNG や JPEG 画像を選んでください。" }
     }
 }
 

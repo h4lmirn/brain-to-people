@@ -6,24 +6,31 @@ import SwiftUI
 // それ以前はマテリアル、縁のハイライト、影で近い見た目を作る。
 
 extension View {
-    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil) -> some View {
-        modifier(GlassSurface(shape: shape, tint: tint))
+    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, backgroundOpacity: Double = 1) -> some View {
+        modifier(GlassSurface(shape: shape, tint: tint, backgroundOpacity: backgroundOpacity))
     }
 
-    func glassCard(cornerRadius: CGFloat = 20) -> some View {
-        glass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    func glassCard(cornerRadius: CGFloat = 20, backgroundOpacity: Double = 1) -> some View {
+        glass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), backgroundOpacity: backgroundOpacity)
     }
 }
 
 struct GlassSurface<S: InsettableShape>: ViewModifier {
     let shape: S
     var tint: Color?
+    var backgroundOpacity: Double = 1
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            content.glassEffect(tint.map { Glass.regular.tint($0.opacity(0.35)) } ?? .regular, in: shape)
+            content.background {
+                // 背景だけを透かし、文字や操作部品の濃さは変えない。
+                Color.clear
+                    .glassEffect(tint.map { Glass.regular.tint($0.opacity(0.35)) } ?? .regular, in: shape)
+                    .opacity(backgroundOpacity)
+                    .allowsHitTesting(false)
+            }
         } else {
             fallback(content)
         }
@@ -48,6 +55,7 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
                         shape.fill(tint.opacity(dark ? 0.22 : 0.16))
                     }
                 }
+                .opacity(backgroundOpacity)
             }
             .overlay {
                 // 縁のハイライト（左上が強く光る）
@@ -105,22 +113,45 @@ private struct OptionalGlass: ViewModifier {
 
 /// ウィンドウの後ろをぼかし、その上に淡い色のにじみを置く。ガラスが透けて見えるための下地。
 struct Backdrop: View {
+    var image: NSImage? = nil
+    var opacity: Double = 0.35
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
-            VisualEffectBackground()
-            GeometryReader { geometry in
-                let w = geometry.size.width, h = geometry.size.height
-                let strength = scheme == .dark ? 0.30 : 0.22
-                ZStack {
-                    blob(.blue, strength, size: w * 0.65).offset(x: -w * 0.30, y: -h * 0.30)
-                    blob(.purple, strength * 0.8, size: w * 0.55).offset(x: w * 0.35, y: -h * 0.10)
-                    blob(.teal, strength * 0.7, size: w * 0.60).offset(x: w * 0.05, y: h * 0.40)
+            if let image {
+                Color(nsColor: .windowBackgroundColor)
+                GeometryReader { geometry in
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                        .clipped()
+                        .opacity(opacity)
+                        .mask {
+                            LinearGradient(stops: [
+                                .init(color: .white, location: 0),
+                                .init(color: .white.opacity(0.9), location: 0.3),
+                                .init(color: .white.opacity(0.35), location: 0.65),
+                                .init(color: .clear, location: 1),
+                            ], startPoint: .top, endPoint: .bottom)
+                        }
                 }
-                .frame(width: w, height: h)
+            } else {
+                VisualEffectBackground()
+                GeometryReader { geometry in
+                    let w = geometry.size.width, h = geometry.size.height
+                    let strength = scheme == .dark ? 0.30 : 0.22
+                    ZStack {
+                        blob(.blue, strength, size: w * 0.65).offset(x: -w * 0.30, y: -h * 0.30)
+                        blob(.purple, strength * 0.8, size: w * 0.55).offset(x: w * 0.35, y: -h * 0.10)
+                        blob(.teal, strength * 0.7, size: w * 0.60).offset(x: w * 0.05, y: h * 0.40)
+                    }
+                    .frame(width: w, height: h)
+                }
             }
         }
+        .allowsHitTesting(false)
         .ignoresSafeArea()
     }
 
