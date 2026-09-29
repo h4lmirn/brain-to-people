@@ -266,7 +266,7 @@ private struct ProfileEditor: View {
                 TextField("モデル名", text: $profile.model)
                 if profile.provider == .anthropic {
                     Menu("候補") {
-                        Button("claude-sonnet-5") { profile.model = "claude-sonnet-5" }
+                        Button(ProviderKind.anthropic.defaultModel) { profile.model = ProviderKind.anthropic.defaultModel }
                         Button("claude-haiku-4-5-20251001（軽く安く）") { profile.model = "claude-haiku-4-5-20251001" }
                     }
                     .fixedSize()

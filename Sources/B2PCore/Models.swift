@@ -36,7 +36,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Identifiable, Sendable 
 
     public var defaultModel: String {
         switch self {
-        case .anthropic: "claude-sonnet-5"
+        case .anthropic: "claude-sonnet-5-5"
         case .openAICompatible: ""
         case .appleOnDevice: "SystemLanguageModel"
         }

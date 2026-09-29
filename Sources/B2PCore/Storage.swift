@@ -76,6 +76,12 @@ public struct ProfileStore: Sendable {
     }
 
     public static func decode(_ data: Data) throws -> [ProfileConfig] {
-        try JSONDecoder().decode([ProfileConfig].self, from: data)
+        try JSONDecoder().decode([ProfileConfig].self, from: data).map { profile in
+            var migrated = profile
+            if migrated.provider == .anthropic && migrated.model == "claude-sonnet-5" {
+                migrated.model = ProviderKind.anthropic.defaultModel
+            }
+            return migrated
+        }
     }
 }
