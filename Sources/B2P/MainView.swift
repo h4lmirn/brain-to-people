@@ -4,10 +4,11 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @ViewState private var changesExpanded = true
+    @ViewState private var backdropFrame = CGRect.zero
 
     var body: some View {
         ZStack {
-            Backdrop(image: model.backgroundImage, opacity: model.backgroundOpacity)
+            Backdrop(image: model.backgroundImage, opacity: model.backgroundOpacity, tracksFrame: true)
             VStack(spacing: 14) {
                 if let message = model.errorMessage {
                     errorBanner(message)
@@ -28,6 +29,9 @@ struct MainView: View {
             .padding(.top, 6)
             .padding(.bottom, 18)
         }
+        .coordinateSpace(name: "mainBackdrop")
+        .environment(\.frostedBackdropFrame, backdropFrame)
+        .onPreferenceChange(BackdropFramePreference.self) { backdropFrame = $0 }
         .background(WindowConfigurator(alwaysOnTop: model.alwaysOnTop))
         .onChange(of: model.resultCount) {
             if model.autoExpandChanges {

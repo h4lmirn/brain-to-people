@@ -44,7 +44,7 @@ final class AppModel: ObservableObject {
     @Published var backgroundOpacity: Double {
         didSet { defaults.set(backgroundOpacity, forKey: Keys.backgroundOpacity) }
     }
-    /// 入力欄と修正版欄で共通。0 は従来の背景、1 は背景を完全に透かす。
+    /// 入力欄と修正版欄で共通。0 はすりガラスを最も強く、1 は背景を完全に透かす。
     @Published var textBackgroundTransparency: Double {
         didSet { defaults.set(textBackgroundTransparency, forKey: Keys.textBackgroundTransparency) }
     }
