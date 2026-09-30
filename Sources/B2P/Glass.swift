@@ -224,6 +224,7 @@ private struct BackgroundArtwork: View {
     let image: NSImage
     let opacity: Double
     var tracksFrame = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GeometryReader { geometry in
@@ -234,6 +235,7 @@ private struct BackgroundArtwork: View {
                     .scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
                     .clipped()
+                    .colorMultiply(scheme == .dark ? Color(white: 0.5) : .white)
                     .opacity(opacity)
                     .mask {
                         LinearGradient(stops: [
@@ -263,19 +265,21 @@ struct Backdrop: View {
                 BackgroundArtwork(image: image, opacity: opacity, tracksFrame: tracksFrame)
             } else {
                 VisualEffectBackground()
+                StudioTheme.paper.opacity(0.90)
                 GeometryReader { geometry in
                     let w = geometry.size.width, h = geometry.size.height
-                    let strength = scheme == .dark ? 0.30 : 0.22
+                    let strength = scheme == .dark ? 0.17 : 0.12
                     ZStack {
-                        blob(.blue, strength, size: w * 0.65).offset(x: -w * 0.30, y: -h * 0.30)
-                        blob(.purple, strength * 0.8, size: w * 0.55).offset(x: w * 0.35, y: -h * 0.10)
-                        blob(.teal, strength * 0.7, size: w * 0.60).offset(x: w * 0.05, y: h * 0.40)
+                        blob(.orange, strength, size: w * 0.70).offset(x: -w * 0.35, y: -h * 0.30)
+                        blob(.indigo, strength * 0.65, size: w * 0.60).offset(x: w * 0.40, y: -h * 0.15)
+                        blob(.pink, strength * 0.35, size: w * 0.55).offset(x: w * 0.05, y: h * 0.45)
                     }
                     .frame(width: w, height: h)
                 }
             }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
         .ignoresSafeArea()
     }
 

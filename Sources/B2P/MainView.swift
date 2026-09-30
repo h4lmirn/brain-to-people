@@ -3,153 +3,150 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewState private var changesExpanded = true
     @ViewState private var backdropFrame = CGRect.zero
+    @ViewState private var selectedPane = 0
 
     var body: some View {
-        ZStack {
-            Backdrop(image: model.backgroundImage, opacity: model.backgroundOpacity, tracksFrame: true)
-            VStack(spacing: 14) {
-                if let message = model.errorMessage {
-                    errorBanner(message)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                GeometryReader { geometry in
-                    let layout = geometry.size.width >= 760
-                        ? AnyLayout(HStackLayout(spacing: 14))
-                        : AnyLayout(VStackLayout(spacing: 14))
-                    layout {
-                        inputPane
-                        revisedPane
+        GeometryReader { window in
+            ZStack {
+                Backdrop(image: model.backgroundImage, opacity: model.backgroundOpacity, tracksFrame: true)
+                VStack(spacing: 18) {
+                    masthead
+                    controls
+                    if let message = model.errorMessage { errorBanner(message) }
+                    GeometryReader { geometry in
+                        if geometry.size.width >= 720 {
+                            HStack(spacing: 16) { inputPane; revisedPane }
+                        } else {
+                            VStack(spacing: 12) {
+                                Picker("表示する欄", selection: $selectedPane) {
+                                    Text("01  入力").tag(0)
+                                    Text("02  修正版").tag(1)
+                                }
+                                .pickerStyle(.segmented).labelsHidden()
+                                .accessibilityLabel("表示する欄")
+                                if selectedPane == 0 { inputPane } else { revisedPane }
+                            }
+                        }
                     }
+                    ChangesPanel(expanded: $changesExpanded,
+                                 maxContentHeight: min(220, max(80, window.size.height - 580)))
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.shield").font(.system(size: 10))
+                        Text("文章は選んだ接続先にだけ送ります。")
+                        Spacer()
+                        Text("⌘↩  整える").fontDesign(.monospaced)
+                    }
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
                 }
-                ChangesPanel(expanded: $changesExpanded)
+                .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 18)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 6)
-            .padding(.bottom, 18)
-        }
-        .coordinateSpace(name: "mainBackdrop")
-        .environment(\.frostedBackdropFrame, backdropFrame)
-        .onPreferenceChange(BackdropFramePreference.self) { backdropFrame = $0 }
-        .background(WindowConfigurator(alwaysOnTop: model.alwaysOnTop))
-        .onChange(of: model.resultCount) {
-            if model.autoExpandChanges {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { changesExpanded = true }
+            .foregroundStyle(StudioTheme.ink).tint(StudioTheme.accent)
+            .coordinateSpace(name: "mainBackdrop")
+            .environment(\.frostedBackdropFrame, backdropFrame)
+            .onPreferenceChange(BackdropFramePreference.self) { backdropFrame = $0 }
+            .background(WindowConfigurator(alwaysOnTop: model.alwaysOnTop))
+            .onChange(of: model.resultCount) {
+                selectedPane = 1
+                if model.autoExpandChanges {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { changesExpanded = true }
+                }
             }
+            .onChange(of: model.highlightRequest?.id) { selectedPane = 1 }
+            .onChange(of: model.isRunning) { if model.isRunning { selectedPane = 1 } }
+            .toolbarBackground(.hidden, for: .windowToolbar)
+            #if DEBUG
+            .onAppear { DebugSnapshot.runIfRequested(model: model) }
+            #endif
         }
-        .toolbar {
-            ToolbarItem(placement: .automatic) { pinButton }
-            ToolbarItem(placement: .automatic) { profileCapsule }
-            ToolbarItem(placement: .automatic) { runButton }
-        }
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        #if DEBUG
-        .onAppear { DebugSnapshot.runIfRequested(model: model) }
-        #endif
-        .frame(minWidth: 600, minHeight: 560)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.errorMessage)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.isRunning)
-        .animation(.easeOut(duration: 0.2), value: model.justCopied)
+        .frame(minWidth: 600, minHeight: 640)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.errorMessage != nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.justCopied)
     }
 
-    // MARK: 上のバー
-
-    private var pinButton: some View {
-        Button {
-            model.alwaysOnTop.toggle()
-        } label: {
-            Image(systemName: model.alwaysOnTop ? "pin.fill" : "pin")
-                .foregroundStyle(model.alwaysOnTop ? Color.accentColor : Color.primary)
-                .rotationEffect(.degrees(model.alwaysOnTop ? 0 : 45))
-                .frame(width: 16)
+    private var masthead: some View {
+        HStack(spacing: 13) {
+            Text("b→p").font(.system(size: 16, weight: .medium, design: .monospaced))
+                .tracking(-1).foregroundStyle(StudioTheme.paper)
+                .frame(width: 44, height: 44)
+                .background(StudioTheme.ink, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Brain-to-People").font(.system(size: 21, weight: .semibold)).tracking(-0.7)
+                Text("思考を、読み手に届くことばへ。").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Button { model.alwaysOnTop.toggle() } label: {
+                Image(systemName: model.alwaysOnTop ? "pin.fill" : "pin")
+                    .foregroundStyle(model.alwaysOnTop ? StudioTheme.accent : StudioTheme.ink).frame(width: 16)
+            }
+            .buttonStyle(StudioButtonStyle(compact: true))
+            .accessibilityLabel("常に最前面").accessibilityValue(model.alwaysOnTop ? "オン" : "オフ")
+            .help("常に最前面（⌥⌘T）")
+            SettingsLink { Image(systemName: "slider.horizontal.3").frame(width: 16) }
+                .buttonStyle(StudioButtonStyle(compact: true))
+                .accessibilityLabel("設定").help("設定（⌘,）")
         }
-        .buttonStyle(GlassButtonStyle())
-        .help(model.alwaysOnTop ? "常に最前面：オン（⌥⌘T）" : "常に最前面に表示（⌥⌘T）")
     }
 
-    private var profileCapsule: some View {
-        HStack(spacing: 0) {
-            Menu {
-                Picker("プロファイル", selection: $model.selectedProfileID) {
-                    ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
-                        Text(index < 9 ? "\(profile.name)　⌘\(index + 1)" : profile.name)
-                            .tag(Optional(profile.id))
+    private var controls: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                StudioEyebrow(text: "WRITE FOR")
+                Menu {
+                    Picker("プロファイル", selection: $model.selectedProfileID) {
+                        ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
+                            Text(index < 9 ? "\(profile.name)　⌘\(index + 1)" : profile.name).tag(Optional(profile.id))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(model.selectedProfile?.name ?? "プロファイル")
+                            .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                        if model.selectedProfile?.fastMode == true {
+                            Image(systemName: "bolt.fill").foregroundStyle(StudioTheme.accent)
+                        }
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
                     }
                 }
-                .pickerStyle(.inline)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "text.badge.checkmark")
-                    Text(model.selectedProfile?.name ?? "プロファイル")
-                    if model.selectedProfile?.fastMode == true {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.yellow)
-                            .help("速さ優先")
-                    }
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                }
-                .font(.system(size: 13, weight: .medium))
+                .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                .frame(maxWidth: 240, alignment: .leading)
+                .accessibilityLabel("プロファイル").help("プロファイル（⌘1〜⌘9）")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .padding(.leading, 14)
-            .padding(.trailing, 10)
-            .help("プロファイル（⌘1〜⌘9）")
-
+            Spacer(minLength: 6)
             if let profile = model.selectedProfile {
-                Divider().frame(height: 16)
-                locationBadge(profile)
-                    .padding(.horizontal, 12)
-            }
-        }
-        .padding(.vertical, 7)
-        .glass(in: Capsule())
-    }
-
-    private func locationBadge(_ profile: ProfileConfig) -> some View {
-        let local = profile.isLocal
-        let color: Color = local ? .green : .blue
-        return HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-                .shadow(color: color.opacity(0.8), radius: 3)
-            Text(local ? "ローカル" : "クラウド")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .fixedSize()
-        .help(local ? "文章はこの Mac の外に送られません" : "文章は \(profile.provider.shortName) のサーバーに送られます")
-    }
-
-    @ViewBuilder
-    private var runButton: some View {
-        if model.isRunning {
-            Button { model.cancel() } label: {
-                HStack(spacing: 7) {
-                    ProgressView().controlSize(.small)
-                    Text("中止")
-                    Text("esc").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(GlassButtonStyle())
-            .help("中止（Esc）")
-        } else {
-            Button { model.run() } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "wand.and.stars")
-                    Text("整える")
-                    Text("⌘↩").font(.system(size: 11, weight: .medium)).opacity(0.75)
+                    Circle().fill(profile.isLocal ? Color.green : StudioTheme.accent).frame(width: 5, height: 5)
+                    Text(profile.isLocal ? "ローカル" : "クラウド").font(.system(size: 10, weight: .medium))
                 }
+                .foregroundStyle(.secondary).fixedSize()
+                .help(profile.isLocal ? "文章はこの Mac の外に送られません" : "文章は \(profile.provider.shortName) のサーバーに送られます")
             }
-            .buttonStyle(GlassButtonStyle(prominent: true))
-            .disabled(model.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("実行（⌘Enter）")
+            Button {
+                if model.isRunning { model.cancel() } else { model.run() }
+            } label: {
+                HStack(spacing: 12) {
+                    Text(model.isRunning ? "中止" : "整える")
+                    if model.isRunning {
+                        Image(systemName: "stop.fill").font(.system(size: 9))
+                    } else {
+                        Text("⌘↩").font(.system(size: 11, weight: .regular)).opacity(0.7)
+                        Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
+                    }
+                }.frame(minWidth: 100)
+            }
+            .buttonStyle(StudioButtonStyle(prominent: true))
+            .disabled(!model.isRunning && model.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help(model.isRunning ? "中止（Esc）" : "実行（⌘Enter）")
         }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .background(StudioTheme.paper.opacity(0.66), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(StudioTheme.line, lineWidth: 0.5))
     }
-
-    // MARK: 入力と修正版
 
     private var escapeHandler: () -> Bool {
         let model = model
@@ -161,241 +158,195 @@ struct MainView: View {
     }
 
     private var inputPane: some View {
-        GlassPane(title: "入力", systemImage: "brain.head.profile", backgroundOpacity: 1 - model.textBackgroundTransparency) {
-            EmptyView()
+        EditorPane(number: "01", eyebrow: "YOUR THOUGHTS", title: "入力",
+                   count: model.input.count, note: "下書きは自動で保存されます",
+                   backgroundOpacity: 1 - model.textBackgroundTransparency) {
+            Image(systemName: "pencil.line").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary)
         } content: {
-            TextArea(text: $model.input, placeholder: "頭に浮かんだまま書いてください", onEscape: escapeHandler)
+            TextArea(text: $model.input, placeholder: "頭に浮かんだまま、書いてください。\n箇条書きや短いメモからでも大丈夫です。", onEscape: escapeHandler)
+                .accessibilityLabel("入力")
         }
     }
 
     private var revisedPane: some View {
-        GlassPane(title: "修正版", systemImage: "person.2", backgroundOpacity: 1 - model.textBackgroundTransparency) {
-            Button {
-                model.copyRevised()
-            } label: {
-                Label(model.justCopied ? "コピーしました" : "コピー", systemImage: model.justCopied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 12, weight: .medium))
-                    .contentTransition(.symbolEffect(.replace))
+        EditorPane(number: "02", eyebrow: "READY FOR PEOPLE", title: "修正版",
+                   count: model.revised.count, note: "この欄で、そのまま編集できます",
+                   backgroundOpacity: 1 - model.textBackgroundTransparency) {
+            Button { model.copyRevised() } label: {
+                Label(model.justCopied ? "コピー済み" : "コピー", systemImage: model.justCopied ? "checkmark" : "doc.on.doc")
             }
-            .buttonStyle(GlassButtonStyle())
-            .controlSize(.small)
-            .disabled(model.revised.isEmpty)
+            .buttonStyle(StudioButtonStyle(compact: true)).disabled(model.revised.isEmpty)
             .help("修正版をコピー（⌃C / ⌘⇧C）")
         } content: {
             TextArea(text: $model.revised,
-                     placeholder: model.isRunning ? "" : "⌘Enter で、読み手に届く文章がここに出ます",
+                     placeholder: model.isRunning ? "" : "読み手に届く文章が、ここに。\n入力して「整える」を押してください。",
                      highlight: model.highlightRequest, onEscape: escapeHandler)
+                .accessibilityLabel("修正版")
                 .overlay {
                     if model.isRunning {
-                        HStack(spacing: 10) {
+                        VStack(spacing: 14) {
                             ProgressView().controlSize(.small)
-                            Text("整えています…").font(.system(size: 13, weight: .medium))
+                            Text("ことばを整えています").font(.system(size: 13, weight: .medium))
+                            Text("中止するには Esc").font(.system(size: 10)).foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 11)
-                        .glass(in: Capsule())
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        .padding(26).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        .allowsHitTesting(false)
                     }
                 }
         }
     }
 
     private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            Text(message)
-                .font(.system(size: 13))
-                .textSelection(.enabled)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(StudioTheme.accent)
+            Text(message).font(.system(size: 12)).textSelection(.enabled)
             Spacer(minLength: 8)
-            Button {
-                model.errorMessage = nil
-            } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("閉じる")
+            Button { model.errorMessage = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain).accessibilityLabel("エラーを閉じる")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .glass(in: Capsule(), tint: .orange)
+        .padding(14).background(StudioTheme.paper.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StudioTheme.accent.opacity(0.25), lineWidth: 1))
     }
 }
 
-private struct GlassPane<Accessory: View, Content: View>: View {
+private struct EditorPane<Accessory: View, Content: View>: View {
+    let number: String
+    let eyebrow: String
     let title: String
-    let systemImage: String
+    let count: Int
+    let note: String
     let backgroundOpacity: Double
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 7) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                Spacer()
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text(number).font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(StudioTheme.accent).frame(width: 27, height: 27)
+                    .background(StudioTheme.accent.opacity(0.08), in: Circle())
+                VStack(alignment: .leading, spacing: 5) {
+                    StudioEyebrow(text: eyebrow)
+                    Text(title).font(.system(size: 17, weight: .semibold))
+                }
+                Spacer(minLength: 6)
                 accessory
             }
-            .frame(height: 30)
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
-            content
-                .padding(.horizontal, 4)
-                .padding(.bottom, 4)
+            .padding(.horizontal, 20).padding(.vertical, 17)
+            StudioRule().padding(.horizontal, 20)
+            content.padding(.horizontal, 8).padding(.top, 6)
+            HStack(spacing: 8) {
+                Text("\(count.formatted()) 文字").monospacedDigit()
+                Spacer(minLength: 4)
+                Text(note).lineLimit(1)
+            }
+            .font(.system(size: 10)).foregroundStyle(.secondary)
+            .padding(.horizontal, 22).padding(.vertical, 13)
         }
-        .glassCard(cornerRadius: 22, backgroundOpacity: backgroundOpacity)
+        .glassCard(cornerRadius: 24, backgroundOpacity: backgroundOpacity)
     }
 }
 
-// MARK: - 修正点
-
 private struct ChangesPanel: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var expanded: Bool
+    var maxContentHeight: CGFloat
     @ViewState private var hovered: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { expanded.toggle() }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { expanded.toggle() }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .foregroundStyle(.secondary)
-                    Text("修正点")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    if !model.changes.isEmpty {
-                        Text("\(model.changes.count)")
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                HStack(spacing: 12) {
+                    Image(systemName: "text.alignleft").font(.system(size: 13)).foregroundStyle(StudioTheme.accent)
+                    Text("修正点").font(.system(size: 13, weight: .semibold))
+                    if model.hasResult {
+                        Text("\(model.changes.count)").font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(StudioTheme.ink.opacity(0.06), in: Capsule())
+                    } else {
+                        Text("ことばを変えた理由まで。").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 8)
                     if !model.concerns.isEmpty {
-                        Label("懸念 \(model.concerns.count)", systemImage: "questionmark.bubble")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.orange)
+                        Label("確認 \(model.concerns.count)", systemImage: "questionmark.circle")
+                            .font(.system(size: 10)).foregroundStyle(StudioTheme.accent)
                     }
-                    Spacer()
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary).rotationEffect(.degrees(expanded ? 0 : -90))
                 }
-                .contentShape(Rectangle())
+                .padding(.horizontal, 20).padding(.vertical, 17).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
-
+            .buttonStyle(.plain).accessibilityLabel("修正点")
+            .accessibilityValue(expanded ? "展開" : "折りたたみ")
             if expanded {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        content
+                StudioRule().padding(.horizontal, 20)
+                if !model.hasResult && model.parseNotice == nil {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.turn.down.right").foregroundStyle(.secondary)
+                        Text("文章を整えると、変更した箇所と理由をここに表示します。")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, 22).padding(.vertical, 17)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) { reviewContent }
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                    }.frame(height: maxContentHeight)
                 }
-                .frame(minHeight: 70, maxHeight: 230)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-        }
-        .glassCard(cornerRadius: 22)
+        }.glassCard(cornerRadius: 20)
     }
 
     @ViewBuilder
-    private var content: some View {
-        if !model.hasResult {
-            Text("実行すると、ここに修正点と読み手目線の懸念が出ます。行をクリックすると修正版の該当部分を示します。")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-        }
+    private var reviewContent: some View {
         if let notice = model.parseNotice {
-            Label(notice, systemImage: "exclamationmark.circle")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
+            Label(notice, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.secondary).padding(8)
         }
         ForEach(Array(model.changes.enumerated()), id: \.offset) { index, change in
             Button { model.highlight(change) } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(change.before)
-                            .foregroundStyle(.secondary)
-                            .strikethrough(color: .secondary.opacity(0.6))
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.accentColor)
-                        Text(change.after)
-                    }
-                    .font(.system(size: 13))
-                    .lineLimit(4)
-                    if !change.reason.isEmpty {
-                        Text(change.reason)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
+                HStack(alignment: .top, spacing: 14) {
+                    Text(String(format: "%02d", index + 1)).font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(StudioTheme.accent).padding(.top, 3)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(change.before).strikethrough(color: .secondary.opacity(0.45))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(change.after).font(.system(size: 13, weight: .medium))
+                        if !change.reason.isEmpty {
+                            Text(change.reason).font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary).padding(.top, 3)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background {
-                    if hovered == index {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(.white.opacity(0.12))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                    }
-                }
+                .padding(12)
+                .background(StudioTheme.ink.opacity(hovered == index ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 12))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .onHover { inside in
-                withAnimation(.easeOut(duration: 0.12)) {
-                    hovered = inside ? index : (hovered == index ? nil : hovered)
-                }
-            }
+            .onHover { inside in hovered = inside ? index : (hovered == index ? nil : hovered) }
             .help("修正版の該当部分を表示")
         }
         if !model.minor.isEmpty {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("表記")
-                    .font(.system(size: 10, weight: .bold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(.secondary.opacity(0.15)))
-                    .foregroundStyle(.secondary)
-                Text(model.minor).font(.system(size: 12))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            Label(model.minor, systemImage: "textformat.abc").font(.system(size: 11)).foregroundStyle(.secondary).padding(8)
         }
         if !model.concerns.isEmpty {
-            Text("読み手目線の懸念")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-            ForEach(Array(model.concerns.enumerated()), id: \.offset) { _, concern in
-                Label {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("読み手に伝わるか、もう一度確認", systemImage: "questionmark.circle")
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(StudioTheme.accent)
+                ForEach(Array(model.concerns.enumerated()), id: \.offset) { _, concern in
                     Text(concern).font(.system(size: 12))
-                } icon: {
-                    Image(systemName: "questionmark.bubble").foregroundStyle(.orange)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 2)
             }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(StudioTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
         }
         if model.hasResult, model.parseNotice == nil, model.changes.isEmpty, model.minor.isEmpty, model.concerns.isEmpty {
-            Label("直すところは見つかりませんでした。", systemImage: "checkmark.seal")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
+            Label("直すところは見つかりませんでした。", systemImage: "checkmark.circle")
+                .font(.system(size: 12)).foregroundStyle(.secondary).padding(8)
         }
     }
 }

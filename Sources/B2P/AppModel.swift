@@ -61,16 +61,21 @@ final class AppModel: ObservableObject {
     /// コピー直後の「コピーしました」表示用。
     @Published var justCopied = false
 
-    private let defaults = UserDefaults.standard
-    private let store = ProfileStore()
-    private let keychain = KeychainStore()
-    private let backgroundStore = BackgroundImageStore()
+    private let defaults: UserDefaults
+    private let store: ProfileStore
+    private let keychain: KeychainStore
+    private let backgroundStore: BackgroundImageStore
     private var task: Task<Void, Never>?
     private var runID: UUID?
     private var copyFeedbackID: UUID?
     private var keyMonitor: Any?
 
-    init() {
+    init(defaults: UserDefaults = .standard, store: ProfileStore = ProfileStore(),
+         keychain: KeychainStore = KeychainStore(), backgroundStore: BackgroundImageStore = BackgroundImageStore()) {
+        self.defaults = defaults
+        self.store = store
+        self.keychain = keychain
+        self.backgroundStore = backgroundStore
         let loaded = store.load()
         profiles = loaded
         input = defaults.string(forKey: Keys.draft) ?? ""
