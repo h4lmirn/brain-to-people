@@ -45,7 +45,7 @@ AI の案を土台にして、最後はあなたの手で仕上げます。
 
 ## いるもの
 
-- macOS 14 Sonoma 以降の Mac。Intel と Apple シリコンのどちらでも動きます
+- macOS 14 Sonoma 以降の Mac。公開中の 1.1 の dmg は Apple シリコン向けです
 - 使う AI の鍵。どれか1つあれば動きます
   - Anthropic の API キー
   - OpenAI の API キー
@@ -54,7 +54,7 @@ AI の案を土台にして、最後はあなたの手で仕上げます。
 
 ## 始め方
 
-1. [Releases](../../releases) から `Brain-to-People-1.0.dmg` をダウンロードします
+1. [Releases](../../releases) から `Brain-to-People-1.1-arm64.dmg` をダウンロードします
 2. dmg を開き、`Brain-to-People` を `Applications` にドラッグします
 3. アプリを開きます
 

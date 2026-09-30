@@ -1,7 +1,9 @@
 Brain-to-People（B2P）のインストール
 
 ■ 動く環境
-・macOS 14 Sonoma 以降（Intel の Mac、Apple シリコンの Mac のどちらでも動きます）
+・macOS 14 Sonoma 以降
+・ファイル名に arm64 がある版は、Apple シリコンの Mac 向けです
+・universal がある版は、Intel と Apple シリコンのどちらでも動きます
 ・Apple Intelligence（端末内で動く接続方式）は、macOS 26 以降で Apple Intelligence がオンの Mac だけで使えます
 
 ■ インストール
