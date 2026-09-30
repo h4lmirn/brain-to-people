@@ -17,7 +17,8 @@ for arg in "$@"; do
     esac
 done
 
-VERSION=1.0
+VERSION=1.1
+BUILD_NUMBER=2
 XCODE_DEV=/Applications/Xcode.app/Contents/Developer
 if DEVELOPER_DIR=$XCODE_DEV xcrun actool --version >/dev/null 2>&1; then
     HAS_XCODE=1
@@ -57,14 +58,20 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed -e 's/$(EXECUTABLE_NAME)/B2P/' \
     -e 's/$(PRODUCT_BUNDLE_IDENTIFIER)/com.changsama.B2P/' \
     -e "s/\$(MARKETING_VERSION)/$VERSION/" \
-    -e 's/$(CURRENT_PROJECT_VERSION)/1/' \
+    -e "s/\$(CURRENT_PROJECT_VERSION)/$BUILD_NUMBER/" \
     -e 's/$(MACOSX_DEPLOYMENT_TARGET)/14.0/' \
     Resources/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 # アドホック署名（Apple Developer Program の署名がないため）
 codesign --force --deep --sign - "$APP"
-echo "built: $APP ($(lipo -archs "$APP/Contents/MacOS/B2P"))"
+BINARY_ARCHS="$(lipo -archs "$APP/Contents/MacOS/B2P")"
+if [[ "$BINARY_ARCHS" == *arm64* && "$BINARY_ARCHS" == *x86_64* ]]; then
+    ARCH_LABEL=universal
+else
+    ARCH_LABEL="$BINARY_ARCHS"
+fi
+echo "built: $APP ($BINARY_ARCHS)"
 
 if [[ $INSTALL == 1 ]]; then
     mkdir -p ~/Applications
@@ -80,7 +87,7 @@ if [[ $DMG == 1 ]]; then
     cp -R "$APP" "$STAGE/"
     ln -s /Applications "$STAGE/Applications"
     cp Resources/はじめにお読みください.txt "$STAGE/"
-    OUT="dist/Brain-to-People-$VERSION.dmg"
+    OUT="dist/Brain-to-People-$VERSION-$ARCH_LABEL.dmg"
     rm -f "$OUT"
     hdiutil create -volname "Brain-to-People" -srcfolder "$STAGE" -ov -format UDZO "$OUT" >/dev/null
     echo "dmg: $OUT ($(du -h "$OUT" | cut -f1))"
