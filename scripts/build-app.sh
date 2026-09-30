@@ -51,16 +51,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/B2P"
 
-# アイコン: Xcode があれば Icon Composer 形式（.icon）から Liquid Glass のアイコンを作る。
-# なければ、前回作った AppIcon.icns をそのまま使う。
-if [[ $HAS_XCODE == 1 ]]; then
-    xcrun actool Resources/AppIcon.icon \
-        --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 \
-        --app-icon AppIcon --output-partial-info-plist build/icon-partial.plist >/dev/null
-    cp "$APP/Contents/Resources/AppIcon.icns" Resources/AppIcon.icns
-else
-    cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-fi
+# ビルド環境によらず、共通の黒いマークを使う。
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 sed -e 's/$(EXECUTABLE_NAME)/B2P/' \
     -e 's/$(PRODUCT_BUNDLE_IDENTIFIER)/com.changsama.B2P/' \

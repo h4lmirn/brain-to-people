@@ -214,7 +214,6 @@ Ollama や LM Studio につながらないときは、先にそのアプリを�
 
 Xcode か、Xcode の Command Line Tools を入れておきます。
 Xcode があると、Intel と Apple シリコンの両方で動く形で作れます。
-アイコンを Liquid Glass で表示するにも、Xcode がいります。
 
 ```bash
 git clone https://github.com/h4lmirn/brain-to-people.git
@@ -255,9 +254,8 @@ macOS 15.5 SDK で作った版では、Apple Intelligence は使えません。
 - `Sources/B2PCore`：AI への送り方、返事の読み取り、保存。画面を持ちません
 - `Sources/B2P`：画面とキーボード操作
 
-アイコンは `scripts/make-icon.swift` で描いています。
-描いた結果は `Resources/AppIcon.icon` に書き出されます。
-Xcode の Icon Composer で開いて、手で直すこともできます。
+アイコンと画面左上のマークには、同じ黒い `b→p` を使っています。
+`bash scripts/make-icon.sh` で、アプリアイコンと README 用の画像を作り直せます。
 
 ## 使ってよい人
 
