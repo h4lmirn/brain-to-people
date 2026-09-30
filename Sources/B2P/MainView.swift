@@ -62,11 +62,7 @@ struct MainView: View {
 
     private var masthead: some View {
         HStack(spacing: 13) {
-            Text("b→p").font(.system(size: 16, weight: .medium, design: .monospaced))
-                .tracking(-1).foregroundStyle(StudioTheme.paper)
-                .frame(width: 44, height: 44)
-                .background(StudioTheme.ink, in: RoundedRectangle(cornerRadius: 14))
-                .accessibilityHidden(true)
+            BrandMark()
             Text("Brain-to-People").font(.system(size: 21, weight: .semibold)).tracking(-0.7)
             Spacer(minLength: 12)
             Button { model.alwaysOnTop.toggle() } label: {
