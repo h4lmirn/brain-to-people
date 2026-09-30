@@ -32,7 +32,7 @@ struct TextArea: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: 8, height: 10)
+        textView.textContainerInset = NSSize(width: 10, height: 12)
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -138,7 +138,7 @@ final class EscapableTextView: NSTextView {
                           width: max(0, bounds.width - 2 * (origin.x + padding)),
                           height: max(0, bounds.height - origin.y))
         var attributes = TextArea.attributes
-        attributes[.foregroundColor] = NSColor.tertiaryLabelColor
+        attributes[.foregroundColor] = NSColor.secondaryLabelColor
         (placeholder as NSString).draw(in: rect, withAttributes: attributes)
     }
 

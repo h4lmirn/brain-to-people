@@ -11,7 +11,96 @@ extension View {
     }
 
     func glassCard(cornerRadius: CGFloat = 20, backgroundOpacity: Double = 1) -> some View {
-        glass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), backgroundOpacity: backgroundOpacity)
+        modifier(FrostedPanel(cornerRadius: cornerRadius, backgroundOpacity: backgroundOpacity))
+    }
+}
+
+/// 大きな文章パネル用。ぼかすのは背後だけで、文字はマテリアルの外に置く。
+private struct FrostedPanel: ViewModifier {
+    var cornerRadius: CGFloat
+    var backgroundOpacity: Double
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.frostedBackdropFrame) private var backdropFrame
+    @EnvironmentObject private var model: AppModel
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let dark = scheme == .dark
+        let opacity = reduceTransparency ? 1 : min(1, max(0, backgroundOpacity))
+        content
+            .background {
+                ZStack {
+                    if reduceTransparency {
+                        shape.fill(Color(nsColor: .windowBackgroundColor))
+                    } else {
+                        if let image = model.backgroundImage, !backdropFrame.isEmpty {
+                            GeometryReader { geometry in
+                                let panelFrame = geometry.frame(in: .named("mainBackdrop"))
+                                // 背景と同じ大きさ・位置で描き、パネルの範囲だけを切り出す。
+                                // 画像を欄ごとに引き伸ばすと、境目で背景がずれてしまう。
+                                BackgroundArtwork(image: image, opacity: model.backgroundOpacity)
+                                    .frame(width: backdropFrame.width, height: backdropFrame.height)
+                                    .blur(radius: 12)
+                                    .offset(x: backdropFrame.minX - panelFrame.minX,
+                                            y: backdropFrame.minY - panelFrame.minY)
+                            }
+                            .clipShape(shape)
+                            .opacity(opacity)
+                        } else {
+                            FrostedBackdrop(opacity: opacity)
+                                .clipShape(shape)
+                        }
+                        shape.fill(LinearGradient(
+                            colors: [.white.opacity(dark ? 0.09 : 0.18),
+                                     .white.opacity(dark ? 0.025 : 0.035)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .opacity(opacity)
+                    }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .background {
+                // 面全体を影の形に使い、本文には影を付けない。
+                shape.fill(.black.opacity(0.035 * opacity))
+                    .shadow(color: .black.opacity((dark ? 0.28 : 0.10) * opacity), radius: 16, y: 7)
+                    .shadow(color: .black.opacity(0.08 * opacity), radius: 2, y: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .overlay {
+                ZStack {
+                    shape.strokeBorder(LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(dark ? 0.55 : 0.90), location: 0),
+                            .init(color: .white.opacity(dark ? 0.14 : 0.28), location: 0.42),
+                            .init(color: .black.opacity(dark ? 0.22 : 0.10), location: 0.72),
+                            .init(color: .white.opacity(dark ? 0.25 : 0.50), location: 1),
+                        ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                    shape.inset(by: 1).strokeBorder(.white.opacity((dark ? 0.06 : 0.18) * opacity), lineWidth: 0.5)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+    }
+}
+
+private struct FrostedBackdrop: NSViewRepresentable {
+    var opacity: Double
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        // ウィンドウの外ではなく、アプリ内の背景画像をぼかす。
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.alphaValue = opacity
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.alphaValue = opacity
     }
 }
 
@@ -111,47 +200,86 @@ private struct OptionalGlass: ViewModifier {
 
 // MARK: - 背景
 
+struct BackdropFramePreference: PreferenceKey {
+    static let defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isEmpty { value = next }
+    }
+}
+
+private struct FrostedBackdropFrameKey: EnvironmentKey {
+    static let defaultValue = CGRect.zero
+}
+
+extension EnvironmentValues {
+    var frostedBackdropFrame: CGRect {
+        get { self[FrostedBackdropFrameKey.self] }
+        set { self[FrostedBackdropFrameKey.self] = newValue }
+    }
+}
+
+/// 通常の背景と、ガラス越しの背景に同じ画像配置・グラデーションを使う。
+private struct BackgroundArtwork: View {
+    let image: NSImage
+    let opacity: Double
+    var tracksFrame = false
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                    .clipped()
+                    .colorMultiply(scheme == .dark ? Color(white: 0.5) : .white)
+                    .opacity(opacity)
+                    .mask {
+                        LinearGradient(stops: [
+                            .init(color: .white, location: 0),
+                            .init(color: .white.opacity(0.9), location: 0.3),
+                            .init(color: .white.opacity(0.35), location: 0.65),
+                            .init(color: .clear, location: 1),
+                        ], startPoint: .top, endPoint: .bottom)
+                    }
+            }
+            .preference(key: BackdropFramePreference.self,
+                        value: tracksFrame ? geometry.frame(in: .named("mainBackdrop")) : .zero)
+        }
+    }
+}
+
 /// ウィンドウの後ろをぼかし、その上に淡い色のにじみを置く。ガラスが透けて見えるための下地。
 struct Backdrop: View {
     var image: NSImage? = nil
     var opacity: Double = 0.35
+    var tracksFrame = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
             if let image {
-                Color(nsColor: .windowBackgroundColor)
-                GeometryReader { geometry in
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
-                        .clipped()
-                        .opacity(opacity)
-                        .mask {
-                            LinearGradient(stops: [
-                                .init(color: .white, location: 0),
-                                .init(color: .white.opacity(0.9), location: 0.3),
-                                .init(color: .white.opacity(0.35), location: 0.65),
-                                .init(color: .clear, location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
-                        }
-                }
+                BackgroundArtwork(image: image, opacity: opacity, tracksFrame: tracksFrame)
             } else {
                 VisualEffectBackground()
+                StudioTheme.paper.opacity(0.90)
                 GeometryReader { geometry in
                     let w = geometry.size.width, h = geometry.size.height
-                    let strength = scheme == .dark ? 0.30 : 0.22
+                    let strength = scheme == .dark ? 0.17 : 0.12
                     ZStack {
-                        blob(.blue, strength, size: w * 0.65).offset(x: -w * 0.30, y: -h * 0.30)
-                        blob(.purple, strength * 0.8, size: w * 0.55).offset(x: w * 0.35, y: -h * 0.10)
-                        blob(.teal, strength * 0.7, size: w * 0.60).offset(x: w * 0.05, y: h * 0.40)
+                        blob(.orange, strength, size: w * 0.70).offset(x: -w * 0.35, y: -h * 0.30)
+                        blob(.indigo, strength * 0.65, size: w * 0.60).offset(x: w * 0.40, y: -h * 0.15)
+                        blob(.pink, strength * 0.35, size: w * 0.55).offset(x: w * 0.05, y: h * 0.45)
                     }
                     .frame(width: w, height: h)
                 }
             }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
         .ignoresSafeArea()
     }
 

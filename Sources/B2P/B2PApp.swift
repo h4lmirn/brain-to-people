@@ -12,7 +12,7 @@ struct B2PApp: App {
                 .environmentObject(model)
         }
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1100, height: 760)
+        .defaultSize(width: 1180, height: 820)
         .commands { B2PCommands(model: model) }
 
         Settings {

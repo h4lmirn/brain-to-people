@@ -11,6 +11,7 @@ struct SettingsView: View {
             ProfilesSettingsView()
                 .tabItem { Label("プロファイル", systemImage: "text.badge.checkmark") }
         }
+        .tint(StudioTheme.accent)
     }
 }
 

@@ -44,7 +44,7 @@ final class AppModel: ObservableObject {
     @Published var backgroundOpacity: Double {
         didSet { defaults.set(backgroundOpacity, forKey: Keys.backgroundOpacity) }
     }
-    /// 入力欄と修正版欄で共通。0 は従来の背景、1 は背景を完全に透かす。
+    /// 入力欄と修正版欄で共通。0 はすりガラスを最も強く、1 は背景を完全に透かす。
     @Published var textBackgroundTransparency: Double {
         didSet { defaults.set(textBackgroundTransparency, forKey: Keys.textBackgroundTransparency) }
     }
@@ -61,16 +61,21 @@ final class AppModel: ObservableObject {
     /// コピー直後の「コピーしました」表示用。
     @Published var justCopied = false
 
-    private let defaults = UserDefaults.standard
-    private let store = ProfileStore()
-    private let keychain = KeychainStore()
-    private let backgroundStore = BackgroundImageStore()
+    private let defaults: UserDefaults
+    private let store: ProfileStore
+    private let keychain: KeychainStore
+    private let backgroundStore: BackgroundImageStore
     private var task: Task<Void, Never>?
     private var runID: UUID?
     private var copyFeedbackID: UUID?
     private var keyMonitor: Any?
 
-    init() {
+    init(defaults: UserDefaults = .standard, store: ProfileStore = ProfileStore(),
+         keychain: KeychainStore = KeychainStore(), backgroundStore: BackgroundImageStore = BackgroundImageStore()) {
+        self.defaults = defaults
+        self.store = store
+        self.keychain = keychain
+        self.backgroundStore = backgroundStore
         let loaded = store.load()
         profiles = loaded
         input = defaults.string(forKey: Keys.draft) ?? ""
