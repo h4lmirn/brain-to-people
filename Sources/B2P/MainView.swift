@@ -160,12 +160,7 @@ struct MainView: View {
         GlassPane(title: "入力", systemImage: "brain.head.profile", backgroundOpacity: 1 - model.textBackgroundTransparency) {
             EmptyView()
         } content: {
-            TextArea(text: $model.input, onEscape: escapeHandler)
-                .overlay(alignment: .topLeading) {
-                    if model.input.isEmpty {
-                        placeholder("頭に浮かんだまま書いてください")
-                    }
-                }
+            TextArea(text: $model.input, placeholder: "頭に浮かんだまま書いてください", onEscape: escapeHandler)
         }
     }
 
@@ -183,12 +178,9 @@ struct MainView: View {
             .disabled(model.revised.isEmpty)
             .help("修正版をコピー（⌃C / ⌘⇧C）")
         } content: {
-            TextArea(text: $model.revised, highlight: model.highlightRequest, onEscape: escapeHandler)
-                .overlay(alignment: .topLeading) {
-                    if model.revised.isEmpty, !model.isRunning {
-                        placeholder("⌘Enter で、読み手に届く文章がここに出ます")
-                    }
-                }
+            TextArea(text: $model.revised,
+                     placeholder: model.isRunning ? "" : "⌘Enter で、読み手に届く文章がここに出ます",
+                     highlight: model.highlightRequest, onEscape: escapeHandler)
                 .overlay {
                     if model.isRunning {
                         HStack(spacing: 10) {
@@ -202,15 +194,6 @@ struct MainView: View {
                     }
                 }
         }
-    }
-
-    private func placeholder(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 15))
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 12)
-            .allowsHitTesting(false)
     }
 
     private func errorBanner(_ message: String) -> some View {
