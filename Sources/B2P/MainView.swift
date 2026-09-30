@@ -33,14 +33,7 @@ struct MainView: View {
                     }
                     ChangesPanel(expanded: $changesExpanded,
                                  maxContentHeight: min(220, max(80, window.size.height - 580)))
-                    HStack(spacing: 6) {
-                        Image(systemName: "lock.shield").font(.system(size: 10))
-                        Text("文章は選んだ接続先にだけ送ります。")
-                        Spacer()
-                        Text("⌘↩  整える").fontDesign(.monospaced)
-                    }
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
+
                 }
                 .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 18)
             }
@@ -74,10 +67,7 @@ struct MainView: View {
                 .frame(width: 44, height: 44)
                 .background(StudioTheme.ink, in: RoundedRectangle(cornerRadius: 14))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Brain-to-People").font(.system(size: 21, weight: .semibold)).tracking(-0.7)
-                Text("思考を、読み手に届くことばへ。").font(.system(size: 11)).foregroundStyle(.secondary)
-            }
+            Text("Brain-to-People").font(.system(size: 21, weight: .semibold)).tracking(-0.7)
             Spacer(minLength: 12)
             Button { model.alwaysOnTop.toggle() } label: {
                 Image(systemName: model.alwaysOnTop ? "pin.fill" : "pin")
@@ -159,18 +149,18 @@ struct MainView: View {
 
     private var inputPane: some View {
         EditorPane(number: "01", eyebrow: "YOUR THOUGHTS", title: "入力",
-                   count: model.input.count, note: "下書きは自動で保存されます",
+                   count: model.input.count,
                    backgroundOpacity: 1 - model.textBackgroundTransparency) {
             Image(systemName: "pencil.line").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary)
         } content: {
-            TextArea(text: $model.input, placeholder: "頭に浮かんだまま、書いてください。\n箇条書きや短いメモからでも大丈夫です。", onEscape: escapeHandler)
+            TextArea(text: $model.input, placeholder: "入力…", onEscape: escapeHandler)
                 .accessibilityLabel("入力")
         }
     }
 
     private var revisedPane: some View {
         EditorPane(number: "02", eyebrow: "READY FOR PEOPLE", title: "修正版",
-                   count: model.revised.count, note: "この欄で、そのまま編集できます",
+                   count: model.revised.count,
                    backgroundOpacity: 1 - model.textBackgroundTransparency) {
             Button { model.copyRevised() } label: {
                 Label(model.justCopied ? "コピー済み" : "コピー", systemImage: model.justCopied ? "checkmark" : "doc.on.doc")
@@ -179,15 +169,13 @@ struct MainView: View {
             .help("修正版をコピー（⌃C / ⌘⇧C）")
         } content: {
             TextArea(text: $model.revised,
-                     placeholder: model.isRunning ? "" : "読み手に届く文章が、ここに。\n入力して「整える」を押してください。",
                      highlight: model.highlightRequest, onEscape: escapeHandler)
                 .accessibilityLabel("修正版")
                 .overlay {
                     if model.isRunning {
                         VStack(spacing: 14) {
                             ProgressView().controlSize(.small)
-                            Text("ことばを整えています").font(.system(size: 13, weight: .medium))
-                            Text("中止するには Esc").font(.system(size: 10)).foregroundStyle(.secondary)
+                            Text("整えています…").font(.system(size: 13, weight: .medium))
                         }
                         .padding(26).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
                         .allowsHitTesting(false)
@@ -214,7 +202,6 @@ private struct EditorPane<Accessory: View, Content: View>: View {
     let eyebrow: String
     let title: String
     let count: Int
-    let note: String
     let backgroundOpacity: Double
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
@@ -238,7 +225,6 @@ private struct EditorPane<Accessory: View, Content: View>: View {
             HStack(spacing: 8) {
                 Text("\(count.formatted()) 文字").monospacedDigit()
                 Spacer(minLength: 4)
-                Text(note).lineLimit(1)
             }
             .font(.system(size: 10)).foregroundStyle(.secondary)
             .padding(.horizontal, 22).padding(.vertical, 13)
@@ -266,37 +252,28 @@ private struct ChangesPanel: View {
                         Text("\(model.changes.count)").font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .padding(.horizontal, 7).padding(.vertical, 3)
                             .background(StudioTheme.ink.opacity(0.06), in: Capsule())
-                    } else {
-                        Text("ことばを変えた理由まで。").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
                     if !model.concerns.isEmpty {
                         Label("確認 \(model.concerns.count)", systemImage: "questionmark.circle")
                             .font(.system(size: 10)).foregroundStyle(StudioTheme.accent)
                     }
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary).rotationEffect(.degrees(expanded ? 0 : -90))
+                    if model.hasResult || model.parseNotice != nil {
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary).rotationEffect(.degrees(expanded ? 0 : -90))
+                    }
                 }
                 .padding(.horizontal, 20).padding(.vertical, 17).contentShape(Rectangle())
             }
             .buttonStyle(.plain).accessibilityLabel("修正点")
-            .accessibilityValue(expanded ? "展開" : "折りたたみ")
-            if expanded {
+            .disabled(!model.hasResult && model.parseNotice == nil)
+            .accessibilityValue(model.hasResult || model.parseNotice != nil ? (expanded ? "展開" : "折りたたみ") : "")
+            if expanded && (model.hasResult || model.parseNotice != nil) {
                 StudioRule().padding(.horizontal, 20)
-                if !model.hasResult && model.parseNotice == nil {
-                    HStack(spacing: 12) {
-                        Image(systemName: "arrow.turn.down.right").foregroundStyle(.secondary)
-                        Text("文章を整えると、変更した箇所と理由をここに表示します。")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 22).padding(.vertical, 17)
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) { reviewContent }
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    }.frame(height: maxContentHeight)
-                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) { reviewContent }
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                }.frame(height: maxContentHeight)
             }
         }.glassCard(cornerRadius: 20)
     }
@@ -335,7 +312,7 @@ private struct ChangesPanel: View {
         }
         if !model.concerns.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Label("読み手に伝わるか、もう一度確認", systemImage: "questionmark.circle")
+                Label("確認事項", systemImage: "questionmark.circle")
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(StudioTheme.accent)
                 ForEach(Array(model.concerns.enumerated()), id: \.offset) { _, concern in
                     Text(concern).font(.system(size: 12))
@@ -345,7 +322,7 @@ private struct ChangesPanel: View {
             .background(StudioTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
         }
         if model.hasResult, model.parseNotice == nil, model.changes.isEmpty, model.minor.isEmpty, model.concerns.isEmpty {
-            Label("直すところは見つかりませんでした。", systemImage: "checkmark.circle")
+            Label("修正なし", systemImage: "checkmark.circle")
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(8)
         }
     }
