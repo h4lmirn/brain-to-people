@@ -32,6 +32,8 @@ struct MakeIcon {
         let side = CGFloat(size)
         let renderer = ImageRenderer(content:
             BrandMark(size: side * 0.82).frame(width: side, height: side)
+                // macOS が付けるアイコンの面まで黒で満たす。角の形は OS に任せる。
+                .background(BrandMark.backgroundColor)
         )
         renderer.scale = 1
         guard let image = renderer.cgImage,
