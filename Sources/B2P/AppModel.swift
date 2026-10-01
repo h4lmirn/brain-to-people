@@ -1,5 +1,6 @@
 import AppKit
 import B2PCore
+import Carbon.HIToolbox
 import SwiftUI
 
 struct HighlightRequest: Equatable {
@@ -20,6 +21,10 @@ final class AppModel: ObservableObject {
         static let backgroundInterval = "backgroundInterval"
         static let backgroundShuffle = "backgroundShuffle"
         static let textBackgroundTransparency = "textBackgroundTransparency"
+        static let globalHotKey = "globalHotKeyEnabled"
+        static let captureClipboard = "captureClipboardOnCall"
+        static let autoRunOnCall = "autoRunOnCall"
+        static let autoCopyRevised = "autoCopyRevised"
     }
 
     @Published var profiles: [ProfileConfig] {
@@ -63,6 +68,33 @@ final class AppModel: ObservableObject {
     @Published var textBackgroundTransparency: Double {
         didSet { defaults.set(textBackgroundTransparency, forKey: Keys.textBackgroundTransparency) }
     }
+    /// どのアプリからでも ⌃⌥B で呼び出す。
+    @Published var globalHotKeyEnabled: Bool {
+        didSet {
+            defaults.set(globalHotKeyEnabled, forKey: Keys.globalHotKey)
+            updateHotKey()
+        }
+    }
+    /// 呼び出したとき、クリップボードの文章を入力欄に入れる。
+    @Published var captureClipboard: Bool {
+        didSet { defaults.set(captureClipboard, forKey: Keys.captureClipboard) }
+    }
+    /// 呼び出したら、すぐ整える。
+    @Published var autoRunOnCall: Bool {
+        didSet { defaults.set(autoRunOnCall, forKey: Keys.autoRunOnCall) }
+    }
+    /// 整え終わったら、修正版を自動でコピーする。
+    @Published var autoCopyRevised: Bool {
+        didSet { defaults.set(autoCopyRevised, forKey: Keys.autoCopyRevised) }
+    }
+    /// 返事の待ち状態。.connecting は最初の文字が届くまで、.writing は届き始めてから。
+    enum RunPhase { case idle, connecting, writing }
+    @Published private(set) var runPhase = RunPhase.idle
+    @Published private(set) var runStartedAt: Date?
+    /// 修正点の行にカーソルを重ねている間、修正版の該当部分を濃くする。
+    @Published var emphasisText: String?
+    /// 呼び出しで入力欄を置き換えたときの、置き換え前の文章。
+    @Published private(set) var replacedInput: String?
     @Published var changes: [RevisionChange] = []
     @Published var minor = ""
     @Published var concerns: [String] = []
@@ -85,6 +117,9 @@ final class AppModel: ObservableObject {
     private var copyFeedbackID: UUID?
     private var keyMonitor: Any?
     private var slideshowTimer: Timer?
+    private let hotKey = GlobalHotKey()
+    private var runSnapshot: ResultSnapshot?
+    private var replacedInputID: UUID?
     private var currentBackgroundFile: URL?
 
     init(defaults: UserDefaults = .standard, store: ProfileStore = ProfileStore(),
@@ -105,11 +140,19 @@ final class AppModel: ObservableObject {
         let interval = defaults.object(forKey: Keys.backgroundInterval) as? Double ?? 300
         backgroundInterval = interval.isFinite && interval >= 10 ? interval : 300
         backgroundShuffle = defaults.bool(forKey: Keys.backgroundShuffle)
+        globalHotKeyEnabled = defaults.object(forKey: Keys.globalHotKey) as? Bool ?? true
+        captureClipboard = defaults.object(forKey: Keys.captureClipboard) as? Bool ?? true
+        autoRunOnCall = defaults.bool(forKey: Keys.autoRunOnCall)
+        autoCopyRevised = defaults.bool(forKey: Keys.autoCopyRevised)
         let transparency = defaults.object(forKey: Keys.textBackgroundTransparency) as? Double ?? 0
         textBackgroundTransparency = transparency.isFinite ? min(1, max(0, transparency)) : 0
         if !FileManager.default.fileExists(atPath: store.fileURL.path) { saveProfiles() }
         addAppleProfileOnce()
         installControlCMonitor()
+        hotKey.onPress = { [weak self] in
+            Task { @MainActor in self?.quickCapture() }
+        }
+        updateHotKey()
         if let path = defaults.string(forKey: Keys.backgroundFolder) {
             backgroundFolder = URL(fileURLWithPath: path, isDirectory: true)
             advanceBackground()
@@ -228,23 +271,37 @@ final class AppModel: ObservableObject {
         let user = input
         let id = UUID()
         runID = id
+        runSnapshot = ResultSnapshot(self)
+        runStartedAt = Date()
+        runPhase = .connecting
         isRunning = true
 
         task = Task {
             defer {
                 if runID == id {
                     isRunning = false
+                    runPhase = .idle
+                    runStartedAt = nil
+                    runSnapshot = nil
                     task = nil
                 }
             }
             do {
-                let raw = try await provider.complete(system: system, user: user, config: profile)
+                var raw = ""
+                for try await chunk in provider.stream(system: system, user: user, config: profile) {
+                    guard runID == id, !Task.isCancelled else { return }
+                    if runPhase == .connecting { beginWriting() }
+                    raw += chunk
+                    // 修正版は、届いたところまでを順に見せる。修正点などは最後にまとめて出す。
+                    if let partial = PartialJSON.revisedText(in: raw), partial != revised { revised = partial }
+                }
                 guard runID == id, !Task.isCancelled else { return }
                 apply(ResponseParser.parse(raw))
             } catch is CancellationError {
                 // 中止した
             } catch {
                 guard runID == id, !Task.isCancelled else { return }
+                runSnapshot?.restore(into: self)
                 errorMessage = error.localizedDescription
             }
         }
@@ -255,6 +312,51 @@ final class AppModel: ObservableObject {
         task = nil
         runID = nil
         isRunning = false
+        runPhase = .idle
+        runStartedAt = nil
+        runSnapshot?.restore(into: self)
+        runSnapshot = nil
+    }
+
+    /// 最初の文字が届いたら、前の結果を片づけて、修正版を書き込む状態にする。
+    private func beginWriting() {
+        runPhase = .writing
+        revised = ""
+        changes = []
+        minor = ""
+        concerns = []
+        parseNotice = nil
+        hasResult = false
+        highlightRequest = nil
+        emphasisText = nil
+    }
+
+    /// 実行前の結果。中止やエラーのときに戻す。
+    private struct ResultSnapshot {
+        let revised: String
+        let changes: [RevisionChange]
+        let minor: String
+        let concerns: [String]
+        let parseNotice: String?
+        let hasResult: Bool
+
+        @MainActor init(_ model: AppModel) {
+            revised = model.revised
+            changes = model.changes
+            minor = model.minor
+            concerns = model.concerns
+            parseNotice = model.parseNotice
+            hasResult = model.hasResult
+        }
+
+        @MainActor func restore(into model: AppModel) {
+            model.revised = revised
+            model.changes = changes
+            model.minor = minor
+            model.concerns = concerns
+            model.parseNotice = parseNotice
+            model.hasResult = hasResult
+        }
     }
 
     private func apply(_ response: ParsedResponse) {
@@ -275,6 +377,7 @@ final class AppModel: ObservableObject {
         highlightRequest = nil
         hasResult = true
         resultCount += 1
+        if autoCopyRevised { copyRevised() }
     }
 
     func highlight(_ change: RevisionChange) {
@@ -293,6 +396,52 @@ final class AppModel: ObservableObject {
             if copyFeedbackID == id { justCopied = false }
         }
     }
+
+    // MARK: クイック呼び出し
+
+    private func updateHotKey() {
+        if globalHotKeyEnabled {
+            hotKey.register(keyCode: kVK_ANSI_B, modifiers: controlKey | optionKey)
+        } else {
+            hotKey.unregister()
+        }
+    }
+
+    /// ⌃⌥B で呼ばれたとき。ウィンドウを前に出し、設定に応じて、クリップボードの文章を入れて整える。
+    func quickCapture() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.windows.first(where: { $0.title == "Brain-to-People" }) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        }
+        if captureClipboard, let text = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !text.isEmpty, text != input.trimmingCharacters(in: .whitespacesAndNewlines), text != revised {
+            let old = input
+            if !old.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { offerUndo(of: old) }
+            input = text
+        }
+        if autoRunOnCall { run() }
+    }
+
+    /// 置き換えた入力欄を、10秒のあいだ元に戻せるようにする。
+    private func offerUndo(of old: String) {
+        let id = UUID()
+        replacedInputID = id
+        replacedInput = old
+        Task {
+            try? await Task.sleep(for: .seconds(10))
+            if replacedInputID == id { replacedInput = nil }
+        }
+    }
+
+    func undoReplacedInput() {
+        guard let old = replacedInput else { return }
+        input = old
+        replacedInput = nil
+    }
+
+    func dismissReplacedInput() { replacedInput = nil }
 
     // MARK: プロファイル
 

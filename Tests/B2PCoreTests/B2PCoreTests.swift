@@ -245,3 +245,83 @@ struct FastModeTests {
         #expect(profiles[0].model == "claude-sonnet-5-5")
     }
 }
+
+@Suite("ストリーミング")
+struct StreamingTests {
+    @Test func 途中までのrevisedを取り出す() {
+        #expect(PartialJSON.revisedText(in: "{") == nil)
+        #expect(PartialJSON.revisedText(in: #"{"revised""#) == nil)
+        #expect(PartialJSON.revisedText(in: #"{"revised": ""#) == "")
+        #expect(PartialJSON.revisedText(in: #"{"revised": "来週の打ち"#) == "来週の打ち")
+        #expect(PartialJSON.revisedText(in: #"{ "revised" : "A", "changes": ["#) == "A")
+    }
+
+    @Test func エスケープを戻す() {
+        #expect(PartialJSON.revisedText(in: #"{"revised": "一行目\n二行目\"引用\"\\"#) == "一行目\n二行目\"引用\"\\")
+        #expect(PartialJSON.revisedText(in: #"{"revised": "あい"#) == "あい")
+        #expect(PartialJSON.revisedText(in: #"{"revised": "😀"#) == "😀")
+    }
+
+    @Test func 途中で切れたエスケープは続きが届くまで含めない() {
+        #expect(PartialJSON.revisedText(in: #"{"revised": "あ\"#) == "あ")
+        #expect(PartialJSON.revisedText(in: #"{"revised": "あ\u30"#) == "あ")
+        #expect(PartialJSON.revisedText(in: #"{"revised": "あ\ud83d"#) == "あ")
+        #expect(PartialJSON.revisedText(in: #"{"revised": "あ\ud83d\ude0"#) == "あ")
+    }
+
+    @Test func 断片を足していくと最終の文字列に一致する() {
+        let full = #"```json"# + "\n" + #"{"revised": "来週の打ち合わせの日程を確認させてください。\n候補は火曜です。", "changes": []}"#
+        var raw = ""
+        var last = ""
+        for ch in full {
+            raw.append(ch)
+            if let text = PartialJSON.revisedText(in: raw) {
+                #expect("来週の打ち合わせの日程を確認させてください。\n候補は火曜です。".hasPrefix(text))
+                #expect(text.count >= last.count)
+                last = text
+            }
+        }
+        #expect(last == "来週の打ち合わせの日程を確認させてください。\n候補は火曜です。")
+    }
+
+    @Test func Anthropicのイベント() {
+        #expect(AnthropicProvider.streamEvent(from: #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"こんにちは"}}"#) == .text("こんにちは"))
+        #expect(AnthropicProvider.streamEvent(from: #"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"..."}}"#) == .ignored)
+        #expect(AnthropicProvider.streamEvent(from: #"{"type":"message_delta","delta":{"stop_reason":"refusal"}}"#) == .refusal)
+        #expect(AnthropicProvider.streamEvent(from: #"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#) == .failure("Overloaded"))
+        #expect(AnthropicProvider.streamEvent(from: #"{"type":"ping"}"#) == .ignored)
+        #expect(AnthropicProvider.streamEvent(from: "壊れた") == .ignored)
+    }
+
+    @Test func OpenAI互換のイベント() {
+        #expect(OpenAICompatibleProvider.streamEvent(from: #"{"choices":[{"delta":{"content":"あ"}}]}"#) == .text("あ"))
+        #expect(OpenAICompatibleProvider.streamEvent(from: #"{"choices":[{"delta":{"role":"assistant","content":""}}]}"#) == .ignored)
+        #expect(OpenAICompatibleProvider.streamEvent(from: #"{"choices":[{"delta":{"refusal":"お断りします"}}]}"#) == .refusal)
+        #expect(OpenAICompatibleProvider.streamEvent(from: #"{"error":{"message":"model not found"}}"#) == .failure("model not found"))
+    }
+
+    struct Fixed: LLMProvider {
+        let text: String
+        func complete(system: String, user: String, config: ProfileConfig) async throws -> String { text }
+    }
+    struct Failing: LLMProvider {
+        func complete(system: String, user: String, config: ProfileConfig) async throws -> String { throw LLMError.timeout }
+    }
+
+    @Test func 対応しない接続方式は全文を1回で返す() async throws {
+        var chunks: [String] = []
+        for try await chunk in Fixed(text: "全文").stream(system: "s", user: "u", config: ProfileConfig(name: "x", instructions: "")) {
+            chunks.append(chunk)
+        }
+        #expect(chunks == ["全文"])
+    }
+
+    @Test func 既定のストリームはエラーをそのまま伝える() async {
+        do {
+            for try await _ in Failing().stream(system: "s", user: "u", config: ProfileConfig(name: "x", instructions: "")) {}
+            Issue.record("エラーにならなかった")
+        } catch {
+            #expect(error as? LLMError == .timeout)
+        }
+    }
+}
