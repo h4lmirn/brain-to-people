@@ -16,6 +16,9 @@ final class AppModel: ObservableObject {
         static let autoExpandChanges = "autoExpandChanges"
         static let addedAppleProfile = "addedAppleProfile"
         static let backgroundOpacity = "backgroundOpacity"
+        static let backgroundFolder = "backgroundFolderPath"
+        static let backgroundInterval = "backgroundInterval"
+        static let backgroundShuffle = "backgroundShuffle"
         static let textBackgroundTransparency = "textBackgroundTransparency"
     }
 
@@ -44,6 +47,18 @@ final class AppModel: ObservableObject {
     @Published var backgroundOpacity: Double {
         didSet { defaults.set(backgroundOpacity, forKey: Keys.backgroundOpacity) }
     }
+    /// 背景を切り替えるフォルダ。登録中は、選んだ1枚よりこちらを優先する。
+    @Published private(set) var backgroundFolder: URL?
+    /// 切り替えの間隔（秒）。
+    @Published var backgroundInterval: Double {
+        didSet {
+            defaults.set(backgroundInterval, forKey: Keys.backgroundInterval)
+            scheduleSlideshow()
+        }
+    }
+    @Published var backgroundShuffle: Bool {
+        didSet { defaults.set(backgroundShuffle, forKey: Keys.backgroundShuffle) }
+    }
     /// 入力欄と修正版欄で共通。0 はすりガラスを最も強く、1 は背景を完全に透かす。
     @Published var textBackgroundTransparency: Double {
         didSet { defaults.set(textBackgroundTransparency, forKey: Keys.textBackgroundTransparency) }
@@ -69,6 +84,8 @@ final class AppModel: ObservableObject {
     private var runID: UUID?
     private var copyFeedbackID: UUID?
     private var keyMonitor: Any?
+    private var slideshowTimer: Timer?
+    private var currentBackgroundFile: URL?
 
     init(defaults: UserDefaults = .standard, store: ProfileStore = ProfileStore(),
          keychain: KeychainStore = KeychainStore(), backgroundStore: BackgroundImageStore = BackgroundImageStore()) {
@@ -85,11 +102,19 @@ final class AppModel: ObservableObject {
         autoExpandChanges = defaults.object(forKey: Keys.autoExpandChanges) as? Bool ?? true
         backgroundImage = backgroundStore.load()
         backgroundOpacity = min(0.8, max(0.1, defaults.object(forKey: Keys.backgroundOpacity) as? Double ?? 0.35))
+        let interval = defaults.object(forKey: Keys.backgroundInterval) as? Double ?? 300
+        backgroundInterval = interval.isFinite && interval >= 10 ? interval : 300
+        backgroundShuffle = defaults.bool(forKey: Keys.backgroundShuffle)
         let transparency = defaults.object(forKey: Keys.textBackgroundTransparency) as? Double ?? 0
         textBackgroundTransparency = transparency.isFinite ? min(1, max(0, transparency)) : 0
         if !FileManager.default.fileExists(atPath: store.fileURL.path) { saveProfiles() }
         addAppleProfileOnce()
         installControlCMonitor()
+        if let path = defaults.string(forKey: Keys.backgroundFolder) {
+            backgroundFolder = URL(fileURLWithPath: path, isDirectory: true)
+            advanceBackground()
+            scheduleSlideshow()
+        }
     }
 
     /// Apple Intelligence が使える Mac では、端末内で動くプロファイルを一度だけ足す。
@@ -130,8 +155,61 @@ final class AppModel: ObservableObject {
     }
 
     func resetBackground() throws {
+        clearBackgroundFolder()
         try backgroundStore.remove()
         backgroundImage = nil
+    }
+
+    /// フォルダを登録して、すぐ1枚目を出す。画像が1枚もなければ登録しない。
+    func setBackgroundFolder(_ url: URL) throws {
+        guard !BackgroundFolder.images(in: url).isEmpty else { throw CocoaError(.fileReadNoSuchFile) }
+        backgroundFolder = url
+        currentBackgroundFile = nil
+        defaults.set(url.path, forKey: Keys.backgroundFolder)
+        advanceBackground()
+        scheduleSlideshow()
+    }
+
+    func clearBackgroundFolder() {
+        slideshowTimer?.invalidate()
+        slideshowTimer = nil
+        backgroundFolder = nil
+        currentBackgroundFile = nil
+        defaults.removeObject(forKey: Keys.backgroundFolder)
+        backgroundImage = backgroundStore.load()
+    }
+
+    /// 次の画像へ進める。読めない画像は飛ばす。フォルダの中身は毎回数えなおす。
+    func advanceBackground() { advanceBackground(shuffle: backgroundShuffle) }
+
+    /// 順番の設定にかかわらず、フォルダの中からランダムに1枚選んで今すぐ切り替える。
+    func shuffleBackgroundNow() { advanceBackground(shuffle: true) }
+
+    private func advanceBackground(shuffle: Bool) {
+        guard let folder = backgroundFolder else { return }
+        var images = BackgroundFolder.images(in: folder)
+        var file = currentBackgroundFile
+        while let candidate = BackgroundFolder.next(after: file, in: images, shuffle: shuffle) {
+            if let cg = BackgroundImageStore.thumbnail(at: candidate) {
+                currentBackgroundFile = candidate
+                // 背景とすりガラスのパネルが、同じ3秒のクロスフェードで切り替わる。
+                withAnimation(.easeInOut(duration: 3)) {
+                    backgroundImage = NSImage(cgImage: cg, size: .zero)
+                }
+                return
+            }
+            images.removeAll { $0 == candidate }
+            file = candidate
+        }
+    }
+
+    private func scheduleSlideshow() {
+        slideshowTimer?.invalidate()
+        slideshowTimer = nil
+        guard backgroundFolder != nil else { return }
+        slideshowTimer = Timer.scheduledTimer(withTimeInterval: backgroundInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.advanceBackground() }
+        }
     }
 
     func run() {

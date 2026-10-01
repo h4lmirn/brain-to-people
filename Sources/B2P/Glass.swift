@@ -45,6 +45,8 @@ private struct FrostedPanel: ViewModifier {
                                     .offset(x: backdropFrame.minX - panelFrame.minX,
                                             y: backdropFrame.minY - panelFrame.minY)
                             }
+                            .id(ObjectIdentifier(image))
+                            .transition(.opacity)
                             .clipShape(shape)
                             .opacity(opacity)
                         } else {
@@ -263,6 +265,8 @@ struct Backdrop: View {
         ZStack {
             if let image {
                 BackgroundArtwork(image: image, opacity: opacity, tracksFrame: tracksFrame)
+                    .id(ObjectIdentifier(image))
+                    .transition(.opacity)
             } else {
                 VisualEffectBackground()
                 StudioTheme.paper.opacity(0.90)
