@@ -16,6 +16,7 @@ struct MainView: View {
                     masthead
                     controls
                     if let message = model.errorMessage { errorBanner(message) }
+                    if model.replacedInput != nil { replacedInputBanner }
                     GeometryReader { geometry in
                         if geometry.size.width >= 720 {
                             HStack(spacing: 16) { inputPane; revisedPane }
@@ -58,6 +59,7 @@ struct MainView: View {
         .frame(minWidth: 600, minHeight: 640)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.errorMessage != nil)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.justCopied)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.replacedInput != nil)
     }
 
     private var masthead: some View {
@@ -134,6 +136,27 @@ struct MainView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(StudioTheme.line, lineWidth: 0.5))
     }
 
+    /// 背景の画像が透けているときだけ、文字の周りに薄い縁取りを付ける。
+    private var haloStrength: Double {
+        model.backgroundImage == nil ? 0 : model.textBackgroundTransparency
+    }
+
+    private var replacedInputBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.on.clipboard").foregroundStyle(StudioTheme.accent)
+            Text("入力欄をクリップボードの文章に置き換えました。").font(.system(size: 12))
+            Spacer(minLength: 8)
+            Button("元に戻す") { model.undoReplacedInput() }
+                .buttonStyle(StudioButtonStyle(compact: true))
+            Button { model.dismissReplacedInput() } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain).accessibilityLabel("閉じる")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(StudioTheme.paper.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StudioTheme.line, lineWidth: 0.5))
+        .transition(.opacity)
+    }
+
     private var escapeHandler: () -> Bool {
         let model = model
         return {
@@ -149,7 +172,8 @@ struct MainView: View {
                    backgroundOpacity: 1 - model.textBackgroundTransparency) {
             Image(systemName: "pencil.line").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary)
         } content: {
-            TextArea(text: $model.input, placeholder: "入力…", onEscape: escapeHandler)
+            TextArea(text: $model.input, placeholder: "入力…", haloStrength: haloStrength,
+                     onEscape: escapeHandler)
                 .accessibilityLabel("入力")
         }
     }
@@ -158,25 +182,48 @@ struct MainView: View {
         EditorPane(number: "02", eyebrow: "READY FOR PEOPLE", title: "修正版",
                    count: model.revised.count,
                    backgroundOpacity: 1 - model.textBackgroundTransparency) {
-            Button { model.copyRevised() } label: {
-                Label(model.justCopied ? "コピー済み" : "コピー", systemImage: model.justCopied ? "checkmark" : "doc.on.doc")
+            HStack(spacing: 10) {
+                if model.runPhase == .writing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("書いています").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    .transition(.opacity)
+                }
+                Button { model.copyRevised() } label: {
+                    Label(model.justCopied ? "コピー済み" : "コピー", systemImage: model.justCopied ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(StudioButtonStyle(compact: true)).disabled(model.revised.isEmpty || model.isRunning)
+                .help("修正版をコピー（⌃C / ⌘⇧C）")
             }
-            .buttonStyle(StudioButtonStyle(compact: true)).disabled(model.revised.isEmpty)
-            .help("修正版をコピー（⌃C / ⌘⇧C）")
         } content: {
             TextArea(text: $model.revised,
-                     highlight: model.highlightRequest, onEscape: escapeHandler)
+                     highlight: model.highlightRequest,
+                     marks: model.isRunning ? [] : model.changes.map {
+                         TextMark(text: $0.after, note: "元の文：\($0.before)" + ($0.reason.isEmpty ? "" : "\n理由：\($0.reason)"))
+                     },
+                     emphasis: model.emphasisText,
+                     isEditable: !model.isRunning,
+                     followsEnd: model.runPhase == .writing,
+                     haloStrength: haloStrength,
+                     onEscape: escapeHandler)
                 .accessibilityLabel("修正版")
                 .overlay {
-                    if model.isRunning {
-                        VStack(spacing: 14) {
+                    if model.runPhase == .connecting, let started = model.runStartedAt {
+                        VStack(spacing: 12) {
                             ProgressView().controlSize(.small)
-                            Text("整えています…").font(.system(size: 13, weight: .medium))
+                            Text("AI の返事を待っています").font(.system(size: 13, weight: .medium))
+                            TimelineView(.periodic(from: started, by: 1)) { context in
+                                Text("\(max(0, Int(context.date.timeIntervalSince(started)))) 秒")
+                                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                            }
                         }
                         .padding(26).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
                         .allowsHitTesting(false)
+                        .transition(.opacity)
                     }
                 }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.runPhase)
         }
     }
 
@@ -244,6 +291,10 @@ private struct ChangesPanel: View {
                 HStack(spacing: 12) {
                     Image(systemName: "text.alignleft").font(.system(size: 13)).foregroundStyle(StudioTheme.accent)
                     Text("修正点").font(.system(size: 13, weight: .semibold))
+                    if model.isRunning {
+                        Text(model.runPhase == .writing ? "修正点をまとめています…" : "")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
                     if model.hasResult {
                         Text("\(model.changes.count)").font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -300,7 +351,11 @@ private struct ChangesPanel: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .onHover { inside in hovered = inside ? index : (hovered == index ? nil : hovered) }
+            .onHover { inside in
+                hovered = inside ? index : (hovered == index ? nil : hovered)
+                if inside { model.emphasisText = change.after }
+                else if model.emphasisText == change.after { model.emphasisText = nil }
+            }
             .help("修正版の該当部分を表示")
         }
         if !model.minor.isEmpty {

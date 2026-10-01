@@ -25,6 +25,16 @@ private struct GeneralSettingsView: View {
                 Toggle("修正版が出たら、修正点を自動で開く", isOn: $model.autoExpandChanges)
                 Toggle("常に最前面に表示", isOn: $model.alwaysOnTop)
             }
+            Section("クイック呼び出し") {
+                Toggle("どのアプリからでも ⌃⌥B で呼び出す", isOn: $model.globalHotKeyEnabled)
+                Toggle("呼び出したとき、クリップボードの文章を入力欄に入れる", isOn: $model.captureClipboard)
+                    .disabled(!model.globalHotKeyEnabled)
+                Toggle("呼び出したら、すぐ整える", isOn: $model.autoRunOnCall)
+                    .disabled(!model.globalHotKeyEnabled)
+                Toggle("整え終わったら、修正版を自動でコピーする", isOn: $model.autoCopyRevised)
+                Text("書きかけの文章をコピーして ⌃⌥B を押すと、入力欄に入り、整えた結果がクリップボードに入ります。入力欄に文章があったときは、置き換えたあと10秒間、元に戻せます。アプリを開いている間だけ使えます。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("テキストボックス") {
                 HStack {
                     Slider(value: $model.textBackgroundTransparency, in: 0...1, step: 0.05) {

@@ -1,11 +1,26 @@
 import AppKit
 import SwiftUI
 
+/// 修正版の中で、直した箇所に付ける印。カーソルを重ねると、元の表現と理由が出る。
+struct TextMark: Equatable {
+    let text: String
+    let note: String
+}
+
 /// 行間を広めにとった編集欄。TextEditor では選択範囲の強調ができないので NSTextView を包む。
 struct TextArea: NSViewRepresentable {
     @Binding var text: String
     var placeholder = ""
     var highlight: HighlightRequest?
+    /// 直した箇所に薄い印を付ける。
+    var marks: [TextMark] = []
+    /// 修正点の行にカーソルがあるとき、該当部分を濃くする。
+    var emphasis: String?
+    var isEditable = true
+    /// 文章が伸びていく間、末尾を見せ続ける。
+    var followsEnd = false
+    /// 0〜1。背景の画像が透けるときに、文字の周りへ薄い縁取りを足して読みやすくする。
+    var haloStrength: Double = 0
     /// Esc で呼ぶ。true を返したら既定の動作（入力補完）をしない。
     var onEscape: (() -> Bool)?
 
@@ -16,6 +31,27 @@ struct TextArea: NSViewRepresentable {
         paragraph.paragraphSpacing = 4
         return [.font: font, .paragraphStyle: paragraph, .foregroundColor: NSColor.textColor]
     }()
+
+    private static func halo(_ strength: Double) -> NSShadow? {
+        guard strength > 0.05 else { return nil }
+        let shadow = NSShadow()
+        shadow.shadowOffset = .zero
+        shadow.shadowBlurRadius = 4
+        shadow.shadowColor = NSColor.windowBackgroundColor.withAlphaComponent(min(0.9, strength * 0.9))
+        return shadow
+    }
+
+    private static func applyHalo(_ strength: Double, to textView: NSTextView) {
+        let full = NSRange(location: 0, length: (textView.string as NSString).length)
+        let shadow = halo(strength)
+        if let shadow {
+            textView.textStorage?.addAttribute(.shadow, value: shadow, range: full)
+            textView.typingAttributes[.shadow] = shadow
+        } else {
+            textView.textStorage?.removeAttribute(.shadow, range: full)
+            textView.typingAttributes[.shadow] = nil
+        }
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -54,8 +90,23 @@ struct TextArea: NSViewRepresentable {
         guard let textView = scrollView.documentView as? EscapableTextView else { return }
         textView.onEscape = onEscape
         textView.placeholder = placeholder
+        textView.isEditable = isEditable
+        let coordinator = context.coordinator
+        var needsMarks = false
         if textView.string != text, !textView.hasMarkedText() {
             Self.setText(text, in: textView)
+            Self.applyHalo(haloStrength, to: textView)
+            coordinator.lastHalo = haloStrength
+            needsMarks = true
+            if followsEnd { textView.scrollToEndOfDocument(nil) }
+        } else if coordinator.lastHalo != haloStrength {
+            Self.applyHalo(haloStrength, to: textView)
+            coordinator.lastHalo = haloStrength
+        }
+        if needsMarks || coordinator.lastMarks != marks || coordinator.lastEmphasis != emphasis {
+            coordinator.lastMarks = marks
+            coordinator.lastEmphasis = emphasis
+            Self.refreshMarks(in: textView, marks: marks, emphasis: emphasis)
         }
         if let highlight, highlight.id != context.coordinator.lastHighlightID {
             context.coordinator.lastHighlightID = highlight.id
@@ -81,7 +132,6 @@ struct TextArea: NSViewRepresentable {
             range = haystack.range(of: firstLine)
         }
         guard range.location != NSNotFound else { return }
-        clearHighlight(in: textView)
         textView.layoutManager?.addTemporaryAttribute(
             .backgroundColor, value: highlightColor, forCharacterRange: range)
         textView.scrollRangeToVisible(range)
@@ -98,17 +148,53 @@ struct TextArea: NSViewRepresentable {
     fileprivate static func clearHighlight(in textView: NSTextView) {
         let full = NSRange(location: 0, length: (textView.string as NSString).length)
         textView.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: full)
+        textView.layoutManager?.removeTemporaryAttribute(.toolTip, forCharacterRange: full)
+    }
+
+    private static let markTint = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 1, green: 0.69, blue: 0.53, alpha: 1)
+            : NSColor(red: 0.66, green: 0.26, blue: 0.16, alpha: 1)
+    }
+
+    /// 直した箇所の印を付けなおす。文章が変わるたびに、文字列を探しなおして位置を合わせる。
+    fileprivate static func refreshMarks(in textView: NSTextView, marks: [TextMark], emphasis: String?) {
+        clearHighlight(in: textView)
+        guard let layout = textView.layoutManager else { return }
+        let haystack = textView.string as NSString
+        for mark in marks {
+            let needle = mark.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !needle.isEmpty else { continue }
+            let range = haystack.range(of: needle)
+            guard range.location != NSNotFound else { continue }
+            layout.addTemporaryAttribute(.backgroundColor, value: markTint.withAlphaComponent(0.10), forCharacterRange: range)
+            if !mark.note.isEmpty {
+                layout.addTemporaryAttribute(.toolTip, value: mark.note, forCharacterRange: range)
+            }
+        }
+        if let emphasis {
+            let needle = emphasis.trimmingCharacters(in: .whitespacesAndNewlines)
+            let range = haystack.range(of: needle)
+            if !needle.isEmpty, range.location != NSNotFound {
+                layout.addTemporaryAttribute(.backgroundColor, value: markTint.withAlphaComponent(0.28), forCharacterRange: range)
+            }
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextArea
         var lastHighlightID: UUID?
+        var lastMarks: [TextMark] = []
+        var lastEmphasis: String?
+        var lastHalo: Double = 0
 
         init(_ parent: TextArea) { self.parent = parent }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             TextArea.clearHighlight(in: textView)
+            lastMarks = []
+            lastEmphasis = nil
             parent.text = textView.string
         }
     }

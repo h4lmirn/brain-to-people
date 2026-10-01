@@ -2,6 +2,8 @@ import Foundation
 
 public protocol LLMProvider: Sendable {
     func complete(system: String, user: String, config: ProfileConfig) async throws -> String
+    /// 応答を断片ごとに返す。既定の実装は全文を1回で返す（Streaming.swift）。
+    func stream(system: String, user: String, config: ProfileConfig) -> AsyncThrowingStream<String, Error>
 }
 
 public enum LLMError: LocalizedError, Equatable {
@@ -48,27 +50,75 @@ public enum HTTPClient {
         return URLSession(configuration: config)
     }()
 
+    static func mapTransportError(_ error: Error, request: URLRequest) -> Error {
+        guard let error = error as? URLError else { return error }
+        switch error.code {
+        case .cancelled: return CancellationError()
+        case .timedOut: return LLMError.timeout
+        case .notConnectedToInternet, .networkConnectionLost: return LLMError.offline
+        case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+            return LLMError.cannotConnect(request.url?.host ?? "接続先")
+        default: return LLMError.network(error.localizedDescription)
+        }
+    }
+
+    static func statusError(_ code: Int, body: Data) -> LLMError {
+        switch code {
+        case 401, 403: return .unauthorized
+        case 429: return .rateLimited
+        default: return .server(code, errorMessage(from: body))
+        }
+    }
+
     static func send(_ request: URLRequest, session: URLSession) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
-        } catch let error as URLError {
-            switch error.code {
-            case .cancelled: throw CancellationError()
-            case .timedOut: throw LLMError.timeout
-            case .notConnectedToInternet, .networkConnectionLost: throw LLMError.offline
-            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
-                throw LLMError.cannotConnect(request.url?.host ?? "接続先")
-            default: throw LLMError.network(error.localizedDescription)
-            }
+        } catch {
+            throw mapTransportError(error, request: request)
         }
         guard let http = response as? HTTPURLResponse else { throw LLMError.badResponse }
-        switch http.statusCode {
-        case 200..<300: return data
-        case 401, 403: throw LLMError.unauthorized
-        case 429: throw LLMError.rateLimited
-        default: throw LLMError.server(http.statusCode, errorMessage(from: data))
+        guard (200..<300).contains(http.statusCode) else { throw statusError(http.statusCode, body: data) }
+        return data
+    }
+
+    /// Server-Sent Events の `data:` 行を、1 行ずつ返す。
+    static func serverSentData(_ request: URLRequest, session: URLSession) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let bytes: URLSession.AsyncBytes
+                    let response: URLResponse
+                    do {
+                        (bytes, response) = try await session.bytes(for: request)
+                    } catch {
+                        throw mapTransportError(error, request: request)
+                    }
+                    guard let http = response as? HTTPURLResponse else { throw LLMError.badResponse }
+                    guard (200..<300).contains(http.statusCode) else {
+                        var body = Data()
+                        for try await byte in bytes {
+                            body.append(byte)
+                            if body.count >= 4096 { break }
+                        }
+                        throw statusError(http.statusCode, body: body)
+                    }
+                    do {
+                        for try await line in bytes.lines where line.hasPrefix("data:") {
+                            var payload = line.dropFirst(5)
+                            if payload.first == " " { payload = payload.dropFirst() }
+                            continuation.yield(String(payload))
+                        }
+                    } catch {
+                        throw mapTransportError(error, request: request)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -179,6 +229,76 @@ public struct AnthropicProvider: LLMProvider {
                               includeTemperature: includeTemperature, includeEffort: includeEffort)
     }
 
+    /// 1 イベント分の JSON（`data:` の中身）から、本文の断片などを取り出す。
+    public static func streamEvent(from data: String) -> StreamEvent {
+        guard let bytes = data.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              let type = json["type"] as? String else { return .ignored }
+        switch type {
+        case "content_block_delta":
+            if let delta = json["delta"] as? [String: Any], (delta["type"] as? String) == "text_delta",
+               let text = delta["text"] as? String { return .text(text) }
+        case "message_delta":
+            if let delta = json["delta"] as? [String: Any], (delta["stop_reason"] as? String) == "refusal" { return .refusal }
+        case "error":
+            let message = (json["error"] as? [String: Any])?["message"] as? String
+            return .failure(message ?? "原因不明のエラー")
+        default: break
+        }
+        return .ignored
+    }
+
+    public func stream(system: String, user: String, config: ProfileConfig) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let apiKey, !apiKey.isEmpty else { throw LLMError.missingAPIKey }
+                    var includeTemperature = Self.acceptsTemperature(model: config.model)
+                    var includeEffort = config.fastMode && Self.supportsEffort(model: config.model)
+                    // 項目を拒まれたときは、本文が届く前に 400 で返るので、外して送りなおす（最大2回）
+                    for attempt in 0..<3 {
+                        do {
+                            try await streamOnce(system: system, user: user, config: config, apiKey: apiKey,
+                                                 includeTemperature: includeTemperature, includeEffort: includeEffort,
+                                                 into: continuation)
+                            continuation.finish()
+                            return
+                        } catch LLMError.server(400, let message?) where attempt < 2 && includeTemperature && message.contains("temperature") {
+                            includeTemperature = false
+                        } catch LLMError.server(400, let message?) where attempt < 2 && includeEffort && (message.contains("effort") || message.contains("output_config")) {
+                            includeEffort = false
+                        }
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func streamOnce(system: String, user: String, config: ProfileConfig, apiKey: String,
+                            includeTemperature: Bool, includeEffort: Bool,
+                            into continuation: AsyncThrowingStream<String, Error>.Continuation) async throws {
+        guard let url = Self.endpoint(baseURL: config.baseURL) else { throw LLMError.invalidURL }
+        var body = Self.requestBody(system: system, user: user, config: config,
+                                    includeTemperature: includeTemperature, includeEffort: includeEffort)
+        body["stream"] = true
+        let request = try HTTPClient.jsonRequest(url: url, body: body,
+                                                 headers: ["x-api-key": apiKey, "anthropic-version": Self.apiVersion])
+        var emitted = false
+        var refused = false
+        for try await data in HTTPClient.serverSentData(request, session: session) {
+            switch Self.streamEvent(from: data) {
+            case .text(let text): emitted = true; continuation.yield(text)
+            case .refusal: refused = true
+            case .failure(let message): throw LLMError.unavailable("AI のサーバーでエラーが起きました：\(message)")
+            case .ignored: break
+            }
+        }
+        if !emitted { throw refused ? LLMError.refused : LLMError.emptyResponse }
+    }
+
     private func send(system: String, user: String, config: ProfileConfig, apiKey: String,
                       includeTemperature: Bool, includeEffort: Bool) async throws -> String {
         guard let url = Self.endpoint(baseURL: config.baseURL) else { throw LLMError.invalidURL }
@@ -246,6 +366,55 @@ public struct OpenAICompatibleProvider: LLMProvider {
         let request = try HTTPClient.jsonRequest(url: url, body: body, headers: authHeaders)
         let data = try await HTTPClient.send(request, session: session)
         return try Self.extractText(from: data)
+    }
+
+    /// 1 イベント分の JSON（`data:` の中身）から、本文の断片などを取り出す。
+    public static func streamEvent(from data: String) -> StreamEvent {
+        guard let bytes = data.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { return .ignored }
+        if let error = json["error"] as? [String: Any] {
+            return .failure(error["message"] as? String ?? "原因不明のエラー")
+        }
+        guard let delta = (json["choices"] as? [[String: Any]])?.first?["delta"] as? [String: Any] else { return .ignored }
+        if let text = delta["content"] as? String, !text.isEmpty { return .text(text) }
+        if delta["refusal"] is String { return .refusal }
+        return .ignored
+    }
+
+    public func stream(system: String, user: String, config: ProfileConfig) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let url = Self.url(baseURL: config.baseURL, path: "chat/completions") else { throw LLMError.invalidURL }
+                    let body: [String: Any] = [
+                        "model": config.model,
+                        "temperature": config.temperature,
+                        "stream": true,
+                        "messages": [
+                            ["role": "system", "content": system],
+                            ["role": "user", "content": user],
+                        ],
+                    ]
+                    let request = try HTTPClient.jsonRequest(url: url, body: body, headers: authHeaders)
+                    var emitted = false
+                    var refused = false
+                    for try await data in HTTPClient.serverSentData(request, session: session) {
+                        if data.trimmingCharacters(in: .whitespaces) == "[DONE]" { break }
+                        switch Self.streamEvent(from: data) {
+                        case .text(let text): emitted = true; continuation.yield(text)
+                        case .refusal: refused = true
+                        case .failure(let message): throw LLMError.unavailable("AI のサーバーでエラーが起きました：\(message)")
+                        case .ignored: break
+                        }
+                    }
+                    if !emitted { throw refused ? LLMError.refused : LLMError.emptyResponse }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     public func listModels(baseURL: String) async throws -> [String] {
