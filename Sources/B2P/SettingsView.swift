@@ -55,6 +55,7 @@ private struct GeneralSettingsView: View {
                     .accessibilityLabel("背景のプレビュー")
                 HStack {
                     Button("画像を選ぶ…", action: chooseBackground)
+                    Button("フォルダを選ぶ…", action: chooseBackgroundFolder)
                     if model.backgroundImage != nil {
                         Button("元の背景に戻す") {
                             do { try model.resetBackground() }
@@ -62,12 +63,24 @@ private struct GeneralSettingsView: View {
                         }
                     }
                 }
+                if let folder = model.backgroundFolder {
+                    LabeledContent("フォルダ", value: folder.lastPathComponent)
+                    Picker("切り替え間隔", selection: $model.backgroundInterval) {
+                        ForEach(Self.intervals, id: \.seconds) { Text($0.label).tag($0.seconds) }
+                    }
+                    Toggle("ランダムな順番にする", isOn: $model.backgroundShuffle)
+                    HStack {
+                        Button("次の画像へ") { model.advanceBackground() }
+                        Button("シャッフル") { model.shuffleBackgroundNow() }
+                        Button("フォルダの登録を解除") { model.clearBackgroundFolder() }
+                    }
+                }
                 if model.backgroundImage != nil {
                     Slider(value: $model.backgroundOpacity, in: 0.1...0.8, step: 0.05) {
                         Text("画像の濃さ")
                     }
                 }
-                Text("下側ほど画像が淡くなります。画像はこの Mac に保存し、AI には送りません。")
+                Text("下側ほど画像が淡くなります。画像は AI には送りません。フォルダ登録中は、アプリを開いている間、背景が切り替わります。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -78,6 +91,21 @@ private struct GeneralSettingsView: View {
         )) { Button("OK") {} } message: { Text(backgroundError ?? "") }
     }
 
+    private static let intervals: [(label: String, seconds: Double)] = [
+        ("30秒", 30), ("1分", 60), ("5分", 300), ("30分", 1800), ("1時間", 3600),
+    ]
+
+    private func chooseBackgroundFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "このフォルダを使う"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try model.setBackgroundFolder(url) }
+        catch { backgroundError = "このフォルダに PNG・JPEG・HEIC・TIFF の画像が見つかりません。" }
+    }
+
     private func chooseBackground() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff]
@@ -85,7 +113,7 @@ private struct GeneralSettingsView: View {
         panel.canChooseDirectories = false
         panel.prompt = "背景に使う"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { try model.setBackground(from: url) }
+        do { model.clearBackgroundFolder(); try model.setBackground(from: url) }
         catch { backgroundError = "画像を保存できませんでした。別の PNG や JPEG 画像を選んでください。" }
     }
 }
@@ -373,9 +401,9 @@ private struct ProfileEditor: View {
                 ? "AI が答える前に考える量を最小にして、応答を速くします。推敲の質は少し下がることがあります。"
                 : "このモデルはもともと考える時間をとらないため、オンにしても速さは変わりません。"
         case .openAICompatible:
-            "OpenAI 互換の接続では効きません。速くしたいときは、小さいモデルを選んでください。"
+            "OpenAI 互換の接続では速くなりません。速くしたいときは、小さいモデルを選んでください。"
         case .appleOnDevice:
-            "Apple Intelligence では効きません。"
+            "Apple Intelligence では速くなりません。"
         }
     }
 
