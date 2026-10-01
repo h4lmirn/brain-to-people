@@ -310,6 +310,81 @@ macOS 15.5 SDK で作った版では、Apple Intelligence は使えません。
 - `Sources/B2PCore`：AI への送り方、返事の読み取り、保存。画面を持ちません
 - `Sources/B2P`：画面とキーボード操作
 
+### データの形
+
+保存するものは3か所に分かれています。
+
+- プロファイル：`~/Library/Application Support/B2P/profiles.json`
+- API キー：Keychain。接続方式ごとに1件です
+- 選んでいるプロファイル：UserDefaults
+
+AI の返事は、`RevisionResult` の形の JSON として読みます。
+必ずいるのは `revised` だけです。
+
+```mermaid
+erDiagram
+  USER_DEFAULTS |o--|| PROFILE_CONFIG : "selectedProfileID"
+  KEYCHAIN_ITEM |o--o{ PROFILE_CONFIG : "account = provider"
+  PROFILE_CONFIG ||--o{ REVISION_RESULT : "AI が返す"
+  REVISION_RESULT ||--o{ REVISION_CHANGE : "changes"
+  PROFILE_CONFIG {
+    UUID id PK
+    String name "整える / Slack / メール / 記事"
+    ProviderKind provider "anthropic | openAICompatible | appleOnDevice"
+    String baseURL
+    String model "既定 claude-sonnet-5-5"
+    Double temperature "既定 0.3"
+    String instructions
+    Bool fastMode "欠けていれば false"
+  }
+  KEYCHAIN_ITEM {
+    String service "B2P 固定"
+    String account PK "ProviderKind.rawValue"
+    String value "API キー（空なら削除）"
+  }
+  USER_DEFAULTS {
+    String selectedProfileID FK "UUID 文字列"
+  }
+  REVISION_RESULT {
+    String revised "必須。修正版の全文"
+    String minor "細かな表記修正"
+    StringArray concerns "文字列1つでも配列に直す"
+  }
+  REVISION_CHANGE {
+    String before "元の表現"
+    String after "revised の中にそのまま含まれる"
+    String reason "理由を一文で"
+  }
+```
+
+### 実行の流れ
+
+修正版は、届いたところまで順に画面に出します。
+修正点と懸念は、全文が届いてからまとめて出します。
+中止したときやエラーのときは、実行前の結果に戻します。
+
+```mermaid
+flowchart TD
+  T1["⌘↩・実行ボタン"] --> R
+  T2["⌃⌥B（どのアプリからでも）"] --> R
+  R["AppModel.run()<br/>選んでいるプロファイルと入力を取る"]
+  R --> P["PromptBuilder.system<br/>指示文＋出力形式"]
+  R --> F["ProviderFactory.make<br/>Keychain の API キーを渡す"]
+  P --> S
+  F --> S
+  subgraph S["LLMProvider.stream()"]
+    A["Anthropic<br/>SSE で少しずつ返す"]
+    O["OpenAI 互換<br/>SSE で少しずつ返す"]
+    D["Apple 端末内<br/>全文を1回で返す"]
+  end
+  S --> J["届いた分をつなげる<br/>PartialJSON で revised を取り出す"]
+  J --> V["修正版を順に表示"]
+  J --> Q["ResponseParser.parse<br/>コードフェンスを外して JSON を読む"]
+  Q --> OK[".structured<br/>修正点と懸念も表示"]
+  Q --> RAW[".raw<br/>本文だけ表示"]
+  J -. "中止・エラー" .-> E["実行前の結果に戻す"]
+```
+
 アイコンと README 用の画像は、`bash scripts/make-icon.sh` で作り直せます。
 
 ## 使ってよい人
